@@ -37,3 +37,6 @@ build/
 .env.shopping
 .env.local
 .env.*.local
+
+# Docs
+docs/

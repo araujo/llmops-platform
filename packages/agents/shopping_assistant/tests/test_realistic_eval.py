@@ -113,7 +113,7 @@ def test_eval_black_sneakers_under_100_pipeline() -> None:
 
 
 def test_eval_perfume_gift_under_80_fallback_quality() -> None:
-    """Fragrance is absent from sample catalog; expect weak match + grounded alts."""
+    """Fragrance is absent from sample catalog; semantic gate avoids irrelevant rows."""
     msg = "Find a perfume gift under 80 dollars"
     allowed = _catalog_id_set()
 
@@ -123,9 +123,11 @@ def test_eval_perfume_gift_under_80_fallback_quality() -> None:
     prefs_dict = out.preferences or {}
     assert prefs_dict.get("gift_intent") is True
     assert "perfume" in (prefs_dict.get("product_types") or [])
-    assert prefs_dict.get("max_price") == 80.0
+    # Final prefs may include widened budget after retrieval relaxation.
+    assert prefs_dict.get("max_price") in (80.0, 100.0)
 
-    _assert_grounded_products(out.products, allowed)
+    assert out.products == []
+    assert "semantic" in out.reply.lower() or "matched" in out.reply.lower()
     assert isinstance(out.reply, str) and len(out.reply) > 40
 
 

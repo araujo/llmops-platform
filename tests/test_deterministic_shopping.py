@@ -92,14 +92,15 @@ def test_run_deterministic_shopping_returns_products() -> None:
     assert isinstance(out.preferences, dict)
 
 
-def test_run_impossible_budget_still_returns_ranked_results() -> None:
-    """After relaxation, full catalog is ranked so the user always sees options."""
+def test_run_impossible_budget_semantic_gate_no_irrelevant_fillers() -> None:
+    """Structured laptop intent with impossible price yields no filler SKUs."""
     out = run_deterministic_shopping("laptop under $5")
     assert out.mode == "deterministic"
-    assert out.products
+    assert out.search_plan.get("match_quality") == "weak"
+    assert out.products == []
     notes = out.search_plan.get("retrieval_notes") or []
     assert notes
-    assert "catalog" in " ".join(notes).lower()
+    assert "semantic" in " ".join(notes).lower()
 
 
 @pytest.mark.parametrize(
@@ -300,7 +301,7 @@ def test_run_deterministic_shopping_weak_reply_explains_and_lists_catalog_items(
     out = run_deterministic_shopping("perfume gift under 80 dollars")
     assert out.mode == "deterministic"
     assert out.search_plan.get("match_quality") == "weak"
-    assert "couldn't find a strong match" in out.reply.lower()
+    assert "semantic product intent" in out.reply.lower()
     assert all("id" in p and "name" in p for p in out.products)
     assert len(out.products) <= 5
 

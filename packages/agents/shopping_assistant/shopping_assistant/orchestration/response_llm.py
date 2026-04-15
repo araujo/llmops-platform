@@ -35,7 +35,8 @@ def generate_llm_shopping_reply(
     llm = create_shopping_chat_model()
 
     system = (
-        "You are a shopping assistant. Answer using ONLY the product list below. "
+        "You are a shopping assistant. Answer using ONLY the product list "
+        "below. "
         "Include product names and prices. "
         "If the list is empty, say you could not find matches and suggest "
         "how to refine the query. "
@@ -69,6 +70,10 @@ def try_generate_llm_reply(
     product_cards: list[dict[str, Any]],
 ) -> str | None:
     """Return LLM text or ``None`` if not configured or invocation fails."""
+    if search_plan.get("match_quality") == "weak":
+        return None
+    if not product_cards:
+        return None
     if not shopping_chat_model_configured():
         return None
     try:

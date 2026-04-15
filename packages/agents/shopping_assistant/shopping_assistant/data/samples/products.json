@@ -118,5 +118,25 @@
     "currency": "USD",
     "tags": ["ultrabook", "windows", "premium", "display"],
     "colors": ["platinum", "black"]
+  },
+  {
+    "id": "trail-runner-sneaker-blk",
+    "name": "Trail Runner Sneakers",
+    "category": "shoes",
+    "brand": "Stride",
+    "price": 89.0,
+    "currency": "USD",
+    "tags": ["sneakers", "running", "athletic", "footwear"],
+    "colors": ["black", "white"]
+  },
+  {
+    "id": "leather-work-tote-sm",
+    "name": "Leather Work Tote (Small)",
+    "category": "accessories",
+    "brand": "Acme Carry",
+    "price": 95.0,
+    "currency": "USD",
+    "tags": ["tote", "bag", "work", "office", "carry"],
+    "colors": ["black", "brown"]
   }
 ]

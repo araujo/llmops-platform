@@ -97,6 +97,19 @@ class SearchPlan:
     relaxed: bool = False
     match_quality: str = "strong"
     retrieval_notes: list[str] = field(default_factory=list)
+    # Semantic plan layer (API / observability; not wired into retrieval yet).
+    product_types: list[str] = field(default_factory=list)
+    semantic_hints_by_product_type: dict[str, list[str]] = field(
+        default_factory=dict
+    )
+    intent_category_defaults: list[str] = field(default_factory=list)
+    normalized_categories: list[str] = field(default_factory=list)
+    normalized_keywords: list[str] = field(default_factory=list)
+    facet_colors: list[str] = field(default_factory=list)
+    facet_style_keywords: list[str] = field(default_factory=list)
+    facet_use_cases: list[str] = field(default_factory=list)
+    query_text_after_price_strip: str = ""
+    price_preference_summary: str = ""
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -106,6 +119,18 @@ class SearchPlan:
             "relaxed": self.relaxed,
             "match_quality": self.match_quality,
             "retrieval_notes": list(self.retrieval_notes),
+            "product_types": list(self.product_types),
+            "semantic_hints_by_product_type": dict(
+                self.semantic_hints_by_product_type
+            ),
+            "intent_category_defaults": list(self.intent_category_defaults),
+            "normalized_categories": list(self.normalized_categories),
+            "normalized_keywords": list(self.normalized_keywords),
+            "facet_colors": list(self.facet_colors),
+            "facet_style_keywords": list(self.facet_style_keywords),
+            "facet_use_cases": list(self.facet_use_cases),
+            "query_text_after_price_strip": self.query_text_after_price_strip,
+            "price_preference_summary": self.price_preference_summary,
         }
 
 

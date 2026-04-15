@@ -20,6 +20,7 @@ from shopping_assistant.service.deterministic import (
     _product_to_card,
     assess_match_quality,
     build_search_plan,
+    catalog_category_slugs,
     extract_preferences,
     load_product_catalog,
     rank_products,
@@ -129,6 +130,9 @@ def node_rank_candidates(state: ShoppingGraphState) -> dict[str, Any]:
 
 
 def _search_plan_from_dict(d: dict[str, Any]) -> SearchPlan:
+    hints = d.get("semantic_hints_by_product_type") or {}
+    if not isinstance(hints, dict):
+        hints = {}
     return SearchPlan(
         intent=str(d.get("intent", "")),
         filters_applied=list(d.get("filters_applied") or []),
@@ -136,6 +140,16 @@ def _search_plan_from_dict(d: dict[str, Any]) -> SearchPlan:
         relaxed=bool(d.get("relaxed", False)),
         match_quality=str(d.get("match_quality", "strong")),
         retrieval_notes=list(d.get("retrieval_notes") or []),
+        product_types=list(d.get("product_types") or []),
+        semantic_hints_by_product_type={str(k): list(v) for k, v in hints.items()},
+        intent_category_defaults=list(d.get("intent_category_defaults") or []),
+        normalized_categories=list(d.get("normalized_categories") or []),
+        normalized_keywords=list(d.get("normalized_keywords") or []),
+        facet_colors=list(d.get("facet_colors") or []),
+        facet_style_keywords=list(d.get("facet_style_keywords") or []),
+        facet_use_cases=list(d.get("facet_use_cases") or []),
+        query_text_after_price_strip=str(d.get("query_text_after_price_strip") or ""),
+        price_preference_summary=str(d.get("price_preference_summary") or ""),
     )
 
 
@@ -150,12 +164,14 @@ def node_build_search_plan(state: ShoppingGraphState) -> dict[str, Any]:
         ranked_pairs.append((Product.from_serial(body), sc))
     notes = list(state.get("shopping_retrieval_notes") or [])
     match_quality = assess_match_quality(ranked_pairs, prefs, notes)
+    catalog = [Product.from_serial(x) for x in state["shopping_catalog"]]
     plan = build_search_plan(
         state["user_message"].strip(),
         prefs,
         relaxed=bool(state.get("shopping_relaxed", False)),
         match_quality=match_quality,
         retrieval_notes=notes,
+        catalog_categories=catalog_category_slugs(catalog),
     )
     return {"search_plan": plan.to_public_dict()}
 

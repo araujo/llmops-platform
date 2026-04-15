@@ -1,4 +1,7 @@
-"""LangGraph node functions for the shopping pipeline (all logic in this package)."""
+"""LangGraph node functions for the shopping pipeline.
+
+Logic lives in this package only.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +17,15 @@ from shopping_assistant.domain.models import (
     preferences_from_public,
 )
 from shopping_assistant.domain.state import ShoppingGraphState
-from shopping_assistant.orchestration.response_llm import try_generate_llm_reply
+from shopping_assistant.orchestration.pipeline_log import (
+    PIPELINE_LOGGER,
+    compact_preferences,
+    pipeline_event,
+)
+from shopping_assistant.orchestration.response_llm import (
+    shopping_chat_model_configured,
+    try_generate_llm_reply,
+)
 from shopping_assistant.service.deterministic import (
     _format_reply,
     _product_to_card,
@@ -46,10 +57,27 @@ def _error_plan(intent: str) -> dict[str, Any]:
     }
 
 
+def _request_id(state: ShoppingGraphState) -> str:
+    return str(state.get("shopping_request_id") or "unknown")
+
+
+def _short_label(text: str, max_len: int = 36) -> str:
+    t = text.replace("\n", " ").strip()
+    if len(t) <= max_len:
+        return t
+    return t[: max_len - 3] + "..."
+
+
 def node_guard_input(state: ShoppingGraphState) -> dict[str, Any]:
     """Reject empty user input."""
     msg = (state.get("user_message") or "").strip()
     if not msg:
+        pipeline_event(
+            PIPELINE_LOGGER,
+            "guard_reject",
+            _request_id(state),
+            reason="empty_message",
+        )
         return {
             "assistant_message": (
                 "Please send a non-empty message so I can search the catalog."
@@ -68,6 +96,12 @@ def node_load_catalog(state: ShoppingGraphState) -> dict[str, Any]:
         catalog = load_product_catalog()
     except (OSError, ValueError, json.JSONDecodeError, TypeError) as e:
         logger.warning("catalog load failed: %s", e)
+        pipeline_event(
+            PIPELINE_LOGGER,
+            "catalog_load_failed",
+            _request_id(state),
+            error=str(e)[:120],
+        )
         return {
             "assistant_message": (
                 "The shopping catalog is temporarily unavailable. "
@@ -79,6 +113,11 @@ def node_load_catalog(state: ShoppingGraphState) -> dict[str, Any]:
             "products": [],
         }
     if not catalog:
+        pipeline_event(
+            PIPELINE_LOGGER,
+            "catalog_empty",
+            _request_id(state),
+        )
         return {
             "assistant_message": (
                 "The product catalog is empty; nothing to search yet."
@@ -96,7 +135,14 @@ def node_extract_preferences(state: ShoppingGraphState) -> dict[str, Any]:
     catalog = [Product.from_serial(x) for x in state["shopping_catalog"]]
     msg = state["user_message"].strip()
     prefs = extract_preferences(msg, catalog)
-    return {"preferences": prefs.to_public_dict()}
+    prefs_dict = prefs.to_public_dict()
+    pipeline_event(
+        PIPELINE_LOGGER,
+        "preferences_extracted",
+        _request_id(state),
+        preferences=compact_preferences(prefs_dict),
+    )
+    return {"preferences": prefs_dict}
 
 
 def node_retrieve_candidates(state: ShoppingGraphState) -> dict[str, Any]:
@@ -106,6 +152,14 @@ def node_retrieve_candidates(state: ShoppingGraphState) -> dict[str, Any]:
     prefs = preferences_from_public(state["preferences"])
     candidates, prefs, relaxed, retrieval_notes = retrieve_candidates_with_relaxation(
         catalog, msg, prefs=prefs
+    )
+    pipeline_event(
+        PIPELINE_LOGGER,
+        "retrieval_done",
+        _request_id(state),
+        candidate_count=len(candidates),
+        shopping_relaxed=relaxed,
+        retrieval_notes_n=len(retrieval_notes),
     )
     return {
         "preferences": prefs.to_public_dict(),
@@ -126,6 +180,17 @@ def node_rank_candidates(state: ShoppingGraphState) -> dict[str, Any]:
         row = p.to_serial()
         row["relevance_score"] = round(sc, 2)
         ranked_top.append(row)
+    tops = [
+        f"{p.id}|{_short_label(p.name)}|{round(sc, 2)}"
+        for p, sc in ranked[:5]
+    ]
+    pipeline_event(
+        PIPELINE_LOGGER,
+        "ranking_done",
+        _request_id(state),
+        ranked_count=len(ranked_top),
+        top_ranked=tops,
+    )
     return {"shopping_ranked": ranked_top}
 
 
@@ -173,7 +238,17 @@ def node_build_search_plan(state: ShoppingGraphState) -> dict[str, Any]:
         retrieval_notes=notes,
         catalog_categories=catalog_category_slugs(catalog),
     )
-    return {"search_plan": plan.to_public_dict()}
+    sp = plan.to_public_dict()
+    pipeline_event(
+        PIPELINE_LOGGER,
+        "search_plan_ready",
+        _request_id(state),
+        intent=sp.get("intent"),
+        match_quality=sp.get("match_quality"),
+        filters_n=len(sp.get("filters_applied") or []),
+        product_types=sp.get("product_types"),
+    )
+    return {"search_plan": sp}
 
 
 def node_generate_response(state: ShoppingGraphState) -> dict[str, Any]:
@@ -188,15 +263,41 @@ def node_generate_response(state: ShoppingGraphState) -> dict[str, Any]:
     prefs = preferences_from_public(state["preferences"])
     plan = _search_plan_from_dict(state.get("search_plan") or {})
 
-    cards: list[dict[str, Any]] = []
-    for p, sc in ranked_pairs[:5]:
-        cards.append(_product_to_card(p, sc))
+    mq = plan.match_quality
+    if mq == "weak":
+        reply_pairs: list[tuple[Product, float]] = []
+        cards: list[dict[str, Any]] = []
+    else:
+        reply_pairs = ranked_pairs[:5]
+        cards = [_product_to_card(p, sc) for p, sc in reply_pairs]
 
     det_reply = _format_reply(
-        ranked_pairs,
+        reply_pairs,
         prefs,
         plan,
         relaxed=bool(state.get("shopping_relaxed", False)),
+    )
+
+    sp_dict = state.get("search_plan") or {}
+    mq_raw = sp_dict.get("match_quality")
+    skip_reason: str | None
+    if mq_raw in ("weak", "partial"):
+        skip_reason = "match_quality_tier"
+    elif not cards:
+        skip_reason = "no_product_cards"
+    elif not shopping_chat_model_configured():
+        skip_reason = "llm_not_configured"
+    else:
+        skip_reason = None
+    pipeline_event(
+        PIPELINE_LOGGER,
+        "llm_gate",
+        _request_id(state),
+        match_quality=mq_raw,
+        product_cards=len(cards),
+        llm_configured=shopping_chat_model_configured(),
+        will_attempt_llm=skip_reason is None,
+        llm_skip_reason=skip_reason or "none",
     )
 
     llm_text = try_generate_llm_reply(
@@ -206,11 +307,29 @@ def node_generate_response(state: ShoppingGraphState) -> dict[str, Any]:
         product_cards=cards,
     )
     if llm_text:
+        pipeline_event(
+            PIPELINE_LOGGER,
+            "response_final",
+            _request_id(state),
+            mode="llm",
+            llm_used=True,
+            products_shown=len(cards),
+            reply_chars=len(llm_text),
+        )
         return {
             "assistant_message": llm_text,
             "mode": "llm",
             "products": cards,
         }
+    pipeline_event(
+        PIPELINE_LOGGER,
+        "response_final",
+        _request_id(state),
+        mode="deterministic",
+        llm_used=False,
+        products_shown=len(cards),
+        reply_chars=len(det_reply),
+    )
     return {
         "assistant_message": det_reply,
         "mode": "deterministic",

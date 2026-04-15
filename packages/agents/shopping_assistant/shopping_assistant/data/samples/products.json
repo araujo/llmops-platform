@@ -130,6 +130,16 @@
     "colors": ["black", "white"]
   },
   {
+    "id": "nike-air-zoom-runner",
+    "name": "Nike Air Zoom Runner",
+    "category": "shoes",
+    "brand": "Nike",
+    "price": 119.0,
+    "currency": "USD",
+    "tags": ["sneakers", "running", "road"],
+    "colors": ["black", "white"]
+  },
+  {
     "id": "leather-work-tote-sm",
     "name": "Leather Work Tote (Small)",
     "category": "accessories",

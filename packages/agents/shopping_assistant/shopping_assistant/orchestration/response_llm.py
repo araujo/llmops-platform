@@ -36,7 +36,8 @@ def generate_llm_shopping_reply(
 
     system = (
         "You are a shopping assistant. Answer using ONLY the product list "
-        "below. "
+        "below. Match quality in the JSON context is already classified as "
+        "strong—recommend confidently but never imply a perfect fit beyond these rows. "
         "Include product names and prices. "
         "If the list is empty, say you could not find matches and suggest "
         "how to refine the query. "
@@ -70,7 +71,8 @@ def try_generate_llm_reply(
     product_cards: list[dict[str, Any]],
 ) -> str | None:
     """Return LLM text or ``None`` if not configured or invocation fails."""
-    if search_plan.get("match_quality") == "weak":
+    mq = search_plan.get("match_quality")
+    if mq in ("weak", "partial"):
         return None
     if not product_cards:
         return None

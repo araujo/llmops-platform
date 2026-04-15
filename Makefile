@@ -61,6 +61,9 @@ logs-shared:
 	docker compose -f $(COMPOSE_FILE) $(SHARED_PROFILE) logs -f
 
 # Single-agent shortcuts
+up-faster-shopping:
+	docker compose -f $(COMPOSE_FILE) $(SHARED_PROFILE) $(SHOPPING_PROFILE) up -d
+
 up-shopping:
 	docker compose -f $(COMPOSE_FILE) $(SHARED_PROFILE) $(SHOPPING_PROFILE) up --build -d
 

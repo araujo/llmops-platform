@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 
 from shopping_assistant.domain.models import Product, UserPreferences
-from shopping_assistant.service.deterministic import rank_products
+from shopping_assistant.service.deterministic import (
+    assess_match_quality,
+    extract_brands_from_message,
+    extract_preferences,
+    load_product_catalog,
+    rank_products,
+    retrieve_candidates_with_relaxation,
+)
 
 pytestmark = pytest.mark.realistic_eval
 
@@ -15,6 +22,7 @@ def _p(
     *,
     name: str,
     category: str,
+    brand: str = "Brand",
     price: float = 50.0,
     tags: tuple[str, ...] = (),
     colors: tuple[str, ...] = (),
@@ -23,7 +31,7 @@ def _p(
         id=pid,
         name=name,
         category=category,
-        brand="Brand",
+        brand=brand,
         price=price,
         currency="USD",
         tags=tags,
@@ -70,13 +78,7 @@ def test_ranking_prefers_product_type_hint_in_title() -> None:
 
 
 def test_ranking_black_sneakers_trail_runner_on_top() -> None:
-    """Sample catalog: single sneaker row should stay top after retrieval."""
-    from shopping_assistant.service.deterministic import (
-        extract_preferences,
-        load_product_catalog,
-        retrieve_candidates_with_relaxation,
-    )
-
+    """Max price excludes pricier Nike shoe; top under-budget sneaker wins."""
     msg = "I need black sneakers under 100 dollars"
     catalog = load_product_catalog()
     prefs = extract_preferences(msg, catalog)
@@ -90,12 +92,6 @@ def test_ranking_black_sneakers_trail_runner_on_top() -> None:
 
 def test_ranking_work_bag_leather_tote_on_top() -> None:
     """Sample catalog: work + bag intent should rank the work tote first."""
-    from shopping_assistant.service.deterministic import (
-        extract_preferences,
-        load_product_catalog,
-        retrieve_candidates_with_relaxation,
-    )
-
     msg = "Show me a work bag"
     catalog = load_product_catalog()
     prefs = extract_preferences(msg, catalog)
@@ -109,12 +105,6 @@ def test_ranking_work_bag_leather_tote_on_top() -> None:
 
 def test_ranking_perfume_no_candidates_empty_ranked() -> None:
     """No semantic matches → empty candidates → empty ranking."""
-    from shopping_assistant.service.deterministic import (
-        extract_preferences,
-        load_product_catalog,
-        retrieve_candidates_with_relaxation,
-    )
-
     msg = "Find a perfume gift under 80 dollars"
     catalog = load_product_catalog()
     prefs = extract_preferences(msg, catalog)
@@ -123,3 +113,61 @@ def test_ranking_perfume_no_candidates_empty_ranked() -> None:
     )
     assert not cands
     assert rank_products(cands, msg, prefs2) == []
+
+
+def test_extract_brand_nike_from_message() -> None:
+    assert "Nike" in extract_brands_from_message(
+        "show me nike shoes",
+        load_product_catalog(),
+    )
+
+
+def test_nike_shoes_retrieval_respects_brand() -> None:
+    """Requested brand filters to that manufacturer's rows (sample JSON includes Nike)."""
+    msg = "Show me Nike shoes"
+    catalog = load_product_catalog()
+    prefs = extract_preferences(msg, catalog)
+    assert "Nike" in prefs.brands
+    cands, prefs2, _, _ = retrieve_candidates_with_relaxation(catalog, msg, prefs=prefs)
+    assert len(cands) == 1
+    assert cands[0].id == "nike-air-zoom-runner"
+    assert prefs2.brand_relaxed is False
+
+
+def test_assess_match_quality_tiers() -> None:
+    """Strong vs partial vs weak from the same ranked row shape."""
+    p = _p(
+        "z",
+        name="Nike Shoe",
+        category="shoes",
+        brand="Nike",
+        tags=("sneakers",),
+        colors=("black",),
+    )
+    weak_prefs = UserPreferences(product_types=["sneakers"], brands=[], categories=["shoes"])
+    assert assess_match_quality([], weak_prefs, []) == "weak"
+
+    partial_prefs = UserPreferences(
+        product_types=["sneakers"],
+        brands=["Nike"],
+        categories=["shoes"],
+        brand_relaxed=True,
+    )
+    assert assess_match_quality([(p, 99.0)], partial_prefs, []) == "partial"
+
+    strong_prefs = UserPreferences(
+        product_types=["sneakers"],
+        brands=["Nike"],
+        categories=["shoes"],
+        brand_relaxed=False,
+    )
+    assert assess_match_quality([(p, 99.0)], strong_prefs, []) == "strong"
+
+
+def test_ranking_exact_brand_beats_partial_when_both_in_pool() -> None:
+    """Exact ``Product.brand`` match should score higher than substring-only."""
+    prefs = UserPreferences(brands=["Acme"], product_types=[], categories=[])
+    exact = _p("e", name="Widget", category="x", brand="Acme")
+    partial = _p("p", name="Widget", category="x", brand="Acme Carrying Co.")
+    ranked = rank_products([partial, exact], "acme", prefs)
+    assert ranked[0][0].id == "e"

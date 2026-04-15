@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
 from shopping_assistant.domain.state import ShoppingGraphState
+from shopping_assistant.orchestration.pipeline_log import PIPELINE_LOGGER, pipeline_event
 from shopping_assistant.orchestration.nodes import (
     node_build_search_plan,
     node_extract_preferences,
@@ -69,6 +71,18 @@ def get_shopping_graph() -> Any:
 
 def run_shopping_turn(user_message: str) -> ShoppingGraphState:
     """Run one graph invocation (sync; call from a thread in async routes if needed)."""
+    request_id = uuid.uuid4().hex[:12]
+    pipeline_event(
+        PIPELINE_LOGGER,
+        "request_start",
+        request_id,
+        message_preview=(user_message or "")[:400],
+    )
     graph = get_shopping_graph()
-    result: ShoppingGraphState = graph.invoke({"user_message": user_message})
+    result: ShoppingGraphState = graph.invoke(
+        {
+            "user_message": user_message,
+            "shopping_request_id": request_id,
+        }
+    )
     return result

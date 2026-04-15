@@ -102,7 +102,7 @@ def test_eval_black_sneakers_under_100_pipeline() -> None:
     plan = out.search_plan
     assert plan.get("intent") == "find_products"
     assert isinstance(plan.get("filters_applied"), list)
-    assert plan.get("match_quality") in ("strong", "weak")
+    assert plan.get("match_quality") in ("strong", "partial", "weak")
     prefs_roundtrip = preferences_from_public(out.preferences or {})
     expected_mq = assess_match_quality(
         ranked[:8],
@@ -124,10 +124,14 @@ def test_eval_perfume_gift_under_80_fallback_quality() -> None:
     assert prefs_dict.get("gift_intent") is True
     assert "perfume" in (prefs_dict.get("product_types") or [])
     # Final prefs may include widened budget after retrieval relaxation.
-    assert prefs_dict.get("max_price") in (80.0, 100.0)
+    assert prefs_dict.get("max_price") in (80.0, 96.0, 100.0)
 
     assert out.products == []
-    assert "semantic" in out.reply.lower() or "matched" in out.reply.lower()
+    assert (
+        "catalog" in out.reply.lower()
+        or "match" in out.reply.lower()
+        or "confidence" in out.reply.lower()
+    )
     assert isinstance(out.reply, str) and len(out.reply) > 40
 
 
@@ -181,6 +185,6 @@ def test_search_plan_structure_for_realistic_queries() -> None:
         sp = out.search_plan
         assert sp.get("sort")
         assert "relaxed" in sp
-        assert sp.get("match_quality") in ("strong", "weak")
+        assert sp.get("match_quality") in ("strong", "partial", "weak")
         assert isinstance(sp.get("retrieval_notes"), list)
         assert isinstance(sp.get("filters_applied"), list)

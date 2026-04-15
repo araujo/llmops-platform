@@ -8,6 +8,7 @@ from typing import Any, TypedDict
 class ShoppingGraphState(TypedDict, total=False):
     """State carried through the shopping LangGraph workflow."""
 
+    shopping_request_id: str
     user_message: str
     assistant_message: str
     mode: str

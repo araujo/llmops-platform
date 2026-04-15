@@ -16,6 +16,23 @@ from shopping_assistant.domain.models import (
     UserPreferences,
 )
 
+# When no rows match at the user's max price, retrieval widens the ceiling once.
+PRICE_RELAXATION_RATE = 0.20
+PRICE_RELAXATION_ADD_CAP = 25.0
+
+
+def relaxed_max_price_ceiling(original: float | None) -> float | None:
+    """Raise a max-price ceiling for fallback retrieval (does not change filter rules).
+
+    Uses +20% of the user's limit, with a cap on the absolute dollar increase so
+    tiny budgets do not jump unrealistically and large limits do not balloon.
+    """
+    if original is None or original <= 0:
+        return original
+    delta = original * PRICE_RELAXATION_RATE
+    delta = min(delta, PRICE_RELAXATION_ADD_CAP)
+    return original + delta
+
 
 def retrieve_candidates_with_relaxation(
     catalog: list[Product],
@@ -64,13 +81,21 @@ def retrieve_candidates_with_relaxation(
         candidates = retrieve_candidates(catalog, text, prefs, strict_colors=False)
     if not candidates and prefs.max_price is not None:
         relaxed = True
+        base_ceiling = prefs.max_price
+        new_ceiling = relaxed_max_price_ceiling(base_ceiling)
+        if new_ceiling is None:
+            new_ceiling = base_ceiling
         wide = _copy_prefs(
             prefs,
-            max_price=prefs.max_price * 1.25,
+            max_price=new_ceiling,
             colors=[],
         )
+        delta = wide.max_price - base_ceiling
+        pct = (delta / base_ceiling * 100.0) if base_ceiling else 0.0
         retrieval_notes.append(
-            f"Widened the budget ceiling to about ${wide.max_price:g} (from your limit)."
+            f"No matches at or below ${base_ceiling:g}; retried with max price "
+            f"${wide.max_price:g} (+${delta:g}, about {pct:.0f}% above your limit; "
+            f"the dollar increase is capped at ${PRICE_RELAXATION_ADD_CAP:g})."
         )
         candidates = retrieve_candidates(catalog, text, wide, strict_colors=False)
         prefs = wide
@@ -95,6 +120,42 @@ def retrieve_candidates_with_relaxation(
 
 logger = logging.getLogger(__name__)
 
+# Common brand names users mention (deterministic; longest first for boundary-safe matching).
+_COMMON_BRAND_NAMES_RAW: tuple[str, ...] = (
+    "Bang & Olufsen",
+    "New Balance",
+    "Under Armour",
+    "JBL",
+    "Dyson",
+    "Garmin",
+    "Fitbit",
+    "Sonos",
+    "Anker",
+    "Nike",
+    "Adidas",
+    "Puma",
+    "Reebok",
+    "Converse",
+    "Saucony",
+    "Brooks",
+    "Hoka",
+    "ASICS",
+    "Vans",
+    "Sony",
+    "Bose",
+    "Apple",
+    "Google",
+    "Samsung",
+    "Microsoft",
+    "Lenovo",
+    "Dell",
+    "Logitech",
+    "Amazon",
+    "Instant Pot",
+)
+COMMON_MENTIONED_BRANDS: tuple[str, ...] = tuple(
+    sorted(_COMMON_BRAND_NAMES_RAW, key=lambda s: (-len(s), s.lower()))
+)
 
 # Keywords (message substring) -> canonical category slug (matches JSON ``category``).
 # Only hints that map to a real ``category`` value in the loaded catalog are applied
@@ -300,7 +361,12 @@ INTENT_CATEGORY_DEFAULT_TERMS: dict[str, tuple[str, ...]] = {
 _PLAN_STOPWORDS = _KEYWORD_STOPWORDS | _RETRIEVAL_STOPWORDS | frozenset(
     {
         "dollars",
+        "dollar",
         "usd",
+        "bucks",
+        "buck",
+        "eur",
+        "gbp",
         "need",
         "find",
         "show",
@@ -358,6 +424,9 @@ def _strip_price_phrases_for_plan(text: str) -> str:
     s = re.sub(r"\b(?:cheap|budget|affordable|inexpensive)\b", " ", s)
     s = re.sub(r"\b\d+(?:\.\d+)?\s*dollars?\b", " ", s)
     s = re.sub(r"\$\s*\d+(?:\.\d+)?\b", " ", s)
+    # Stray currency words and bare amounts left after phrase removal.
+    s = re.sub(r"\b(?:dollars?|usd|bucks|buck)\b", " ", s)
+    s = re.sub(r"\b\d+(?:\.\d+)?\b", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -403,6 +472,13 @@ def _plan_keyword_noise_tokens(prefs: UserPreferences) -> frozenset[str]:
     return frozenset(noise)
 
 
+def _is_numeric_token(s: str) -> bool:
+    s = s.replace(",", "").strip()
+    if not s:
+        return True
+    return bool(re.fullmatch(r"\d+(?:\.\d+)?", s))
+
+
 def _normalize_keywords_for_plan(message: str, prefs: UserPreferences) -> list[str]:
     stripped = _strip_price_phrases_for_plan(message)
     noise = _plan_keyword_noise_tokens(prefs)
@@ -412,6 +488,8 @@ def _normalize_keywords_for_plan(message: str, prefs: UserPreferences) -> list[s
     for token in re.findall(r"[a-z0-9][a-z0-9\-]{2,}", stripped):
         t = token.lower().replace("_", "-")
         if len(t) < 3:
+            continue
+        if _is_numeric_token(t):
             continue
         if t in _PLAN_STOPWORDS or t in _COLOR_WORDS:
             continue
@@ -452,7 +530,9 @@ RANK_WEIGHTS: dict[str, float] = {
     # Category: first slug in prefs is treated as the primary inferred category.
     "category_primary": 6.5,
     "category_secondary": 3.2,
-    "brand_match": 3.2,
+    "brand_match_exact": 5.5,
+    "brand_match_partial": 2.1,
+    "brand_mismatch_penalty": -4.0,
     "color_match": 2.9,
     # Product type (retrieval already enforced semantic gate; rank by name vs body).
     "product_type_match_name": 5.0,
@@ -506,6 +586,64 @@ def load_product_catalog() -> list[Product]:
 def known_brands_from_catalog(products: Sequence[Product]) -> list[str]:
     brands = {p.brand.strip() for p in products if p.brand.strip()}
     return sorted(brands, key=len, reverse=True)
+
+
+def _norm_brand_key(s: str) -> str:
+    return s.strip().lower()
+
+
+def _brand_strings_match_exact(requested: str, product_brand: str) -> bool:
+    return _norm_brand_key(requested) == _norm_brand_key(product_brand)
+
+
+def _brand_strings_match_partial(requested: str, product_brand: str) -> bool:
+    """Substring compatibility when exact strings differ (e.g. ``LG`` vs ``LG Electronics``)."""
+    if _brand_strings_match_exact(requested, product_brand):
+        return True
+    rl = _norm_brand_key(requested)
+    pl = _norm_brand_key(product_brand)
+    if len(rl) < 2 or len(pl) < 2:
+        return False
+    return rl in pl or pl in rl
+
+
+def _product_matches_brand_exact(p: Product, brands: list[str]) -> bool:
+    if not brands:
+        return True
+    return any(_brand_strings_match_exact(b, p.brand) for b in brands)
+
+
+def _product_matches_brand_partial(p: Product, brands: list[str]) -> bool:
+    if not brands:
+        return True
+    return any(_brand_strings_match_partial(b, p.brand) for b in brands)
+
+
+def _accumulate_brand_mentions(
+    lower: str,
+    names: Sequence[str],
+    *,
+    seen: set[str],
+    out: list[str],
+) -> None:
+    for brand in names:
+        key = _norm_brand_key(brand)
+        if not key or key in seen:
+            continue
+        if re.search(rf"\b{re.escape(key)}\b", lower):
+            seen.add(key)
+            out.append(brand.strip())
+
+
+def extract_brands_from_message(lower: str, products: list[Product]) -> list[str]:
+    """Detect brand names in ``lower`` using catalog labels plus a common-brand list."""
+    out: list[str] = []
+    seen: set[str] = set()
+    _accumulate_brand_mentions(
+        lower, known_brands_from_catalog(products), seen=seen, out=out
+    )
+    _accumulate_brand_mentions(lower, COMMON_MENTIONED_BRANDS, seen=seen, out=out)
+    return out
 
 
 def catalog_category_slugs(products: Sequence[Product]) -> frozenset[str]:
@@ -676,17 +814,17 @@ def extract_preferences(message: str, products: list[Product]) -> UserPreference
     if any(w in lower for w in _GIFT_WORDS):
         prefs.gift_intent = True
 
-    for brand in known_brands_from_catalog(products):
-        if re.search(rf"\b{re.escape(brand.lower())}\b", lower):
-            if brand not in prefs.brands:
-                prefs.brands.append(brand)
+    prefs.brands = extract_brands_from_message(lower, products)
 
     for c in _COLOR_WORDS:
         if re.search(rf"\b{re.escape(c)}\b", lower):
             prefs.colors.append(c)
 
+    brand_tokens = {_norm_brand_key(b) for b in prefs.brands}
     for token in re.findall(r"[a-z0-9][a-z0-9\-]{2,}", lower):
         if token in _COLOR_WORDS or token in _KEYWORD_STOPWORDS:
+            continue
+        if token in brand_tokens:
             continue
         if token not in prefs.keywords:
             prefs.keywords.append(token)
@@ -725,7 +863,13 @@ def assess_match_quality(
     prefs: UserPreferences,
     retrieval_notes: list[str],
 ) -> str:
-    """Label match strength for grounded fallback copy (``strong`` or ``weak``)."""
+    """Label match tier: ``strong``, ``partial``, or ``weak``.
+
+    - **weak**: empty results, low confidence score, or semantic mismatch on top.
+    - **partial**: type fits but brand relaxed to substring match, non-exact brand
+      string, or requested color missing on the top item.
+    - **strong**: type + category + requested brand (exact when listed) + colors.
+    """
     if not ranked:
         return "weak"
     if not _has_structured_intent(prefs):
@@ -740,6 +884,13 @@ def assess_match_quality(
         for x in ("full catalog", "semantic product")
     ) and top_s < 11.0:
         return "weak"
+
+    if prefs.brand_relaxed:
+        return "partial"
+    if prefs.brands and not _product_matches_brand_exact(top_p, prefs.brands):
+        return "partial"
+    if prefs.colors and not _matches_color(top_p, prefs.colors):
+        return "partial"
     return "strong"
 
 
@@ -835,6 +986,7 @@ def _copy_prefs(
     style_keywords: list[str] | object = ...,
     gift_intent: bool | object = ...,
     keywords: list[str] | object = ...,
+    brand_relaxed: bool | object = ...,
 ) -> UserPreferences:
     """Clone preferences while overriding selected fields."""
     return UserPreferences(
@@ -852,6 +1004,7 @@ def _copy_prefs(
         ),
         gift_intent=prefs.gift_intent if gift_intent is ... else gift_intent,
         keywords=list(prefs.keywords if keywords is ... else keywords),
+        brand_relaxed=prefs.brand_relaxed if brand_relaxed is ... else brand_relaxed,
     )
 
 
@@ -920,8 +1073,11 @@ def _lexical_retrieval_score(
                 score += 0.8
     if prefs.categories and _product_category_allowed(product, prefs.categories):
         score += 3.0
-    if prefs.brands and any(b.lower() in product.brand.lower() for b in prefs.brands):
-        score += 2.5
+    if prefs.brands:
+        if _product_matches_brand_exact(product, prefs.brands):
+            score += 3.0
+        elif _product_matches_brand_partial(product, prefs.brands):
+            score += 1.8
     if prefs.colors and _matches_color(product, prefs.colors):
         score += 1.0
     if prefs.max_price is not None and product.price <= prefs.max_price:
@@ -957,18 +1113,40 @@ def retrieve_candidates(
 ) -> list[Product]:
     """Deterministic candidate retrieval: price/brand/color, category, semantic gate.
 
+    Brand: prefer exact ``Product.brand`` vs requested tokens; if no exact row in
+    the filtered slice, allow partial brand compatibility and set
+    ``prefs.brand_relaxed``.
+
     When ``product_types`` is set, every candidate must match
     :func:`hard_semantic_match` (expanded hints per type). Those rows are passed
     through to ranking unchanged—no lexical top-K that could admit irrelevant
     items with score 0.
     """
-    base = filter_products(products, prefs, strict_colors=strict_colors)
-    if not base:
+    prefs.brand_relaxed = False
+    loose = filter_products(
+        products, prefs, strict_colors=strict_colors, brand_filter="none"
+    )
+    if prefs.brands:
+        exact_pool = [p for p in loose if _product_matches_brand_exact(p, prefs.brands)]
+        if exact_pool:
+            pool = exact_pool
+        else:
+            partial_pool = [
+                p for p in loose if _product_matches_brand_partial(p, prefs.brands)
+            ]
+            if partial_pool:
+                prefs.brand_relaxed = True
+                pool = partial_pool
+            else:
+                pool = []
+    else:
+        pool = loose
+    if not pool:
         return []
     if prefs.product_types:
-        hardened = [p for p in base if hard_semantic_match(p, prefs)]
+        hardened = [p for p in pool if hard_semantic_match(p, prefs)]
         return hardened
-    return _lexical_refine_candidates(base, message, prefs)
+    return _lexical_refine_candidates(pool, message, prefs)
 
 
 def filter_products(
@@ -976,7 +1154,9 @@ def filter_products(
     prefs: UserPreferences,
     *,
     strict_colors: bool,
+    brand_filter: str = "exact",
 ) -> list[Product]:
+    """Filter by price, category, colors, and brand policy."""
     out: list[Product] = []
     for p in products:
         if prefs.max_price is not None and p.price > prefs.max_price + 0.005:
@@ -985,9 +1165,13 @@ def filter_products(
             continue
         if prefs.categories and not _product_category_allowed(p, prefs.categories):
             continue
-        if prefs.brands:
-            if p.brand not in prefs.brands:
-                continue
+        if prefs.brands and brand_filter != "none":
+            if brand_filter == "exact":
+                if not _product_matches_brand_exact(p, prefs.brands):
+                    continue
+            elif brand_filter == "partial":
+                if not _product_matches_brand_partial(p, prefs.brands):
+                    continue
         if strict_colors and prefs.colors and not _matches_color(p, prefs.colors):
             continue
         out.append(p)
@@ -1071,9 +1255,13 @@ def rank_products(
 
         s += _category_rank_score(p, prefs)
 
-        for b in prefs.brands:
-            if b.lower() in p.brand.lower():
-                s += RANK_WEIGHTS["brand_match"]
+        if prefs.brands:
+            if _product_matches_brand_exact(p, prefs.brands):
+                s += RANK_WEIGHTS["brand_match_exact"]
+            elif _product_matches_brand_partial(p, prefs.brands):
+                s += RANK_WEIGHTS["brand_match_partial"]
+            else:
+                s += RANK_WEIGHTS["brand_mismatch_penalty"]
         if prefs.colors and _matches_color(p, prefs.colors):
             s += RANK_WEIGHTS["color_match"]
 
@@ -1163,6 +1351,24 @@ def _format_reply(
     mq = plan.match_quality
     notes = plan.retrieval_notes
 
+    if mq == "weak":
+        lines.append(
+            "Nothing in this sample catalog reached a confident match for your request."
+        )
+        if notes:
+            lines.append("Details: " + " ".join(notes))
+        detail_bits: list[str] = []
+        if prefs.categories:
+            detail_bits.append(f"categories: {', '.join(prefs.categories)}")
+        if prefs.max_price is not None:
+            detail_bits.append(f"budget up to ${prefs.max_price:g}")
+        if prefs.brands:
+            detail_bits.append(f"brands: {', '.join(prefs.brands)}")
+        if detail_bits:
+            lines.append("Filters considered: " + "; ".join(detail_bits) + ".")
+        lines.append("No product list is shown when confidence is low.")
+        return "\n".join(lines)
+
     if not top:
         lines.append(
             "No products in this catalog matched your filters and semantic product intent."
@@ -1180,25 +1386,36 @@ def _format_reply(
             lines.append("Filters considered: " + "; ".join(detail_bits) + ".")
         return "\n".join(lines)
 
-    if mq == "weak":
+    if mq == "partial":
         lines.append(
-            "I couldn't find a strong match for your full request in this catalog."
+            "Here are the closest catalog matches. "
+            "Some of your constraints were not matched exactly."
         )
-        lines.append(
-            "Here are the closest alternatives from the catalog (real items only)."
-        )
-        if notes:
-            lines.append("Adjustments: " + " ".join(notes))
+        if prefs.brand_relaxed and prefs.brands:
+            lines.append(
+                "Brand: no exact label for "
+                f"{', '.join(prefs.brands)}; showing the nearest catalog matches."
+            )
+        elif prefs.colors and not _matches_color(top[0][0], prefs.colors):
+            lines.append(
+                "Color: the top match may not include every color you specified."
+            )
+        elif prefs.brands and not _product_matches_brand_exact(top[0][0], prefs.brands):
+            lines.append(
+                "Brand: product brand may differ slightly from the name you used."
+            )
     elif plan.intent == "browse_or_explore":
         lines.append(
             "Here are some top picks from the sample catalog based on your message."
         )
     else:
         lines.append(
-            "Here are the best matches from the sample catalog given your preferences."
+            "Here are the best matches from this sample catalog for your request."
         )
 
-    if mq != "weak" and relaxed and notes:
+    if mq == "strong" and relaxed and notes:
+        lines.append("Note: " + " ".join(notes))
+    elif mq == "partial" and notes:
         lines.append("Note: " + " ".join(notes))
 
     detail_bits = []
@@ -1216,7 +1433,7 @@ def _format_reply(
             f"{i}. {p.name} — ${p.price:g} {p.currency} "
             f"({p.category}, {p.brand}; score {sc:.1f})"
         )
-    if relaxed and mq != "weak" and not notes:
+    if relaxed and mq == "strong" and not notes:
         lines.append(
             "(Some constraints were relaxed so you still get useful recommendations.)"
         )
@@ -1291,8 +1508,13 @@ def run_deterministic_shopping(message: str) -> DeterministicTurnResult:
         catalog_categories=catalog_category_slugs(catalog),
     )
 
-    reply = _format_reply(top, prefs, plan, relaxed=relaxed)
-    cards = [_product_to_card(p, sc) for p, sc in top[:5]]
+    reply_slice = top[:5] if match_quality != "weak" else []
+    reply = _format_reply(reply_slice, prefs, plan, relaxed=relaxed)
+    cards = (
+        [_product_to_card(p, sc) for p, sc in reply_slice]
+        if match_quality != "weak"
+        else []
+    )
     return DeterministicTurnResult(
         reply=reply,
         mode="deterministic",

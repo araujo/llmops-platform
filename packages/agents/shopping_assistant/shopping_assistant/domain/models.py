@@ -71,6 +71,8 @@ class UserPreferences:
     style_keywords: list[str] = field(default_factory=list)
     gift_intent: bool = False
     keywords: list[str] = field(default_factory=list)
+    #: True when brand filter used substring match vs catalog (retrieval only).
+    brand_relaxed: bool = False
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +86,7 @@ class UserPreferences:
             "style_keywords": list(self.style_keywords),
             "gift_intent": self.gift_intent,
             "keywords": list(self.keywords),
+            "brand_relaxed": self.brand_relaxed,
         }
 
 
@@ -158,4 +161,5 @@ def preferences_from_public(d: dict[str, Any]) -> UserPreferences:
         style_keywords=list(d.get("style_keywords") or []),
         gift_intent=bool(d.get("gift_intent", False)),
         keywords=list(d.get("keywords") or []),
+        brand_relaxed=bool(d.get("brand_relaxed", False)),
     )

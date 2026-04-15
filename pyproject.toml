@@ -1,0 +1,29 @@
+[project]
+name = "llmops-platform"
+version = "0.1.0"
+description = "Monorepo root (workspace only; install member packages)"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.uv.workspace]
+members = ["apps/api", "packages/core", "packages/agents/shopping_assistant"]
+
+# Dev tools for the whole workspace (pytest runs from repo root against `tests/`)
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "packages/agents/shopping_assistant/tests"]
+markers = [
+    "integration: optional tests requiring external services (e.g. MongoDB)",
+    "realistic_eval: shopping assistant realistic user-query evaluation scenarios",
+]
+pythonpath = [
+    "apps/api",
+    "packages/core",
+    "packages/agents/shopping_assistant",
+    "tests",
+]

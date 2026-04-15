@@ -1,0 +1,103 @@
+# Local stack for the plugin-based LLMOps monorepo (no repo-root shopping data paths).
+# From repo root: docker compose -f infrastructure/docker/docker-compose.yml up --build
+# Catalog/prompt CLIs remain package-local: shopping-assistant-catalog, shopping-assistant-seed-prompts
+
+services:
+  mongo:
+    image: mongo:7
+    profiles: ["shared"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    profiles: ["shared"]
+    environment:
+      POSTGRES_USER: llmops
+      POSTGRES_PASSWORD: llmops
+      POSTGRES_DB: llmops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U llmops -d llmops"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["shared"]
+    ports:
+      - "6379:6379"
+
+  langfuse:
+    image: langfuse/langfuse:2
+    profiles: ["shared"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://llmops:llmops@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-devsecret_devsecret_devsecret_devsecret_}
+      SALT: ${LANGFUSE_SALT:-devsalt_devsalt_devsalt_devsalt_devsalt_}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      NEXTAUTH_URL: http://localhost:3000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TELEMETRY_ENABLED: "false"
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    profiles: ["shopping"]
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    # Image entrypoint is typically `litellm`; pass proxy args only.
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    env_file:
+      - ../../.env.shared
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev}
+
+  api:
+    profiles: ["shopping"]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.api
+    depends_on:
+      mongo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../../.env.shared
+      - ../../.env.shopping
+    environment:
+      LLMOPS_MONGO_URI: mongodb://mongo:27017
+      LLMOPS_MONGO_DATABASE: llmops
+      LLMOPS_POSTGRES_DSN: postgresql://llmops:llmops@postgres:5432/llmops
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+
+volumes:
+  mongo_data:
+  pg_data:

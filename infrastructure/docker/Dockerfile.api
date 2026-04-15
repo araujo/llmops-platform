@@ -1,0 +1,23 @@
+# FastAPI host: workspace install of llmops-core, llmops-api, shopping-assistant (no repo-root data).
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+WORKDIR /app
+
+ENV UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Monorepo workspace root (members: apps/api, packages/core, packages/agents/shopping_assistant)
+COPY pyproject.toml /app/pyproject.toml
+COPY apps/api /app/apps/api
+COPY packages/core /app/packages/core
+COPY packages/agents/shopping_assistant /app/packages/agents/shopping_assistant
+
+RUN uv sync --all-packages --no-dev
+
+ENV PATH="/app/.venv/bin:${PATH}"
+
+EXPOSE 8000
+
+# Console script from llmops-api; override with uvicorn if preferred
+CMD ["uvicorn", "llmops_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

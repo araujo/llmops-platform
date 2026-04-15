@@ -1,0 +1,122 @@
+[
+  {
+    "id": "wh-1000xm5-blk",
+    "name": "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
+    "category": "headphones",
+    "brand": "Sony",
+    "price": 348.0,
+    "currency": "USD",
+    "tags": ["wireless", "noise-canceling", "over-ear", "travel"],
+    "colors": ["black", "silver"]
+  },
+  {
+    "id": "airpods-pro-2",
+    "name": "Apple AirPods Pro (2nd Gen)",
+    "category": "earbuds",
+    "brand": "Apple",
+    "price": 249.0,
+    "currency": "USD",
+    "tags": ["wireless", "noise-canceling", "in-ear", "ios"],
+    "colors": ["white"]
+  },
+  {
+    "id": "bose-qc45",
+    "name": "Bose QuietComfort 45 Headphones",
+    "category": "headphones",
+    "brand": "Bose",
+    "price": 329.0,
+    "currency": "USD",
+    "tags": ["wireless", "noise-canceling", "comfort", "travel"],
+    "colors": ["black", "white"]
+  },
+  {
+    "id": "mb-air-m3",
+    "name": "Apple MacBook Air 13\" (M3)",
+    "category": "laptops",
+    "brand": "Apple",
+    "price": 1099.0,
+    "currency": "USD",
+    "tags": ["laptop", "ultrabook", "m3", "macos"],
+    "colors": ["silver", "midnight"]
+  },
+  {
+    "id": "thinkpad-x1",
+    "name": "Lenovo ThinkPad X1 Carbon",
+    "category": "laptops",
+    "brand": "Lenovo",
+    "price": 1429.0,
+    "currency": "USD",
+    "tags": ["business", "ultrabook", "windows", "keyboard"],
+    "colors": ["black"]
+  },
+  {
+    "id": "kindle-paperwhite",
+    "name": "Amazon Kindle Paperwhite",
+    "category": "e-readers",
+    "brand": "Amazon",
+    "price": 149.99,
+    "currency": "USD",
+    "tags": ["e-ink", "reading", "waterproof"],
+    "colors": ["black"]
+  },
+  {
+    "id": "ninja-blender",
+    "name": "Ninja Professional Blender 1000W",
+    "category": "kitchen",
+    "brand": "Ninja",
+    "price": 89.99,
+    "currency": "USD",
+    "tags": ["blender", "smoothie", "countertop"],
+    "colors": ["black", "silver"]
+  },
+  {
+    "id": "instant-pot-duo",
+    "name": "Instant Pot Duo 7-in-1 Pressure Cooker",
+    "category": "kitchen",
+    "brand": "Instant Pot",
+    "price": 99.0,
+    "currency": "USD",
+    "tags": ["pressure-cooker", "multi-cooker", "slow-cook"],
+    "colors": ["black", "stainless"]
+  },
+  {
+    "id": "logi-mx-keys",
+    "name": "Logitech MX Keys Wireless Keyboard",
+    "category": "accessories",
+    "brand": "Logitech",
+    "price": 119.99,
+    "currency": "USD",
+    "tags": ["keyboard", "wireless", "ergonomic", "multi-device"],
+    "colors": ["graphite", "silver"]
+  },
+  {
+    "id": "anker-charger-65w",
+    "name": "Anker 65W GaN USB-C Charger",
+    "category": "accessories",
+    "brand": "Anker",
+    "price": 45.99,
+    "currency": "USD",
+    "tags": ["charger", "usb-c", "travel", "compact"],
+    "colors": ["white", "black"]
+  },
+  {
+    "id": "samsung-galaxy-buds2",
+    "name": "Samsung Galaxy Buds2 Pro",
+    "category": "earbuds",
+    "brand": "Samsung",
+    "price": 199.0,
+    "currency": "USD",
+    "tags": ["wireless", "android", "noise-canceling"],
+    "colors": ["black", "white", "graphite"]
+  },
+  {
+    "id": "dell-xps-13",
+    "name": "Dell XPS 13 Laptop",
+    "category": "laptops",
+    "brand": "Dell",
+    "price": 999.0,
+    "currency": "USD",
+    "tags": ["ultrabook", "windows", "premium", "display"],
+    "colors": ["platinum", "black"]
+  }
+]

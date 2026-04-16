@@ -12,6 +12,10 @@ from shopping_assistant.llm.factory import (
     create_shopping_chat_model,
     read_llm_settings_from_env,
 )
+from shopping_assistant.orchestration.pipeline_log import (
+    PIPELINE_LOGGER,
+    pipeline_stage_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,7 @@ def try_generate_llm_reply(
     preferences: dict[str, Any],
     search_plan: dict[str, Any],
     product_cards: list[dict[str, Any]],
+    request_id: str | None = None,
 ) -> str | None:
     """Return LLM text or ``None`` if not configured or invocation fails."""
     mq = search_plan.get("match_quality")
@@ -85,8 +90,18 @@ def try_generate_llm_reply(
             search_plan=search_plan,
             product_cards=product_cards,
         )
-    except Exception:
-        logger.exception(
-            "Shopping LLM reply failed; using deterministic reply instead"
+    except Exception as exc:
+        rid = request_id or "unknown"
+        pipeline_stage_error(
+            PIPELINE_LOGGER,
+            "llm_generation",
+            rid,
+            exc,
+            message_preview=(user_message or "")[:220],
+        )
+        logger.info(
+            "Shopping LLM reply failed for request_id=%s; "
+            "using deterministic reply instead",
+            rid,
         )
         return None

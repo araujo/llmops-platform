@@ -12,7 +12,13 @@ from pymongo import MongoClient
 
 from llmops_api.context import build_host_context
 from llmops_api.settings import Settings
+from llmops_core.plugins.infra import (
+    APP_STATE_ATTR_TRACING_EXTRAS,
+    EXTRA_KEY_EVAL_RUNNER,
+    EXTRA_KEY_TRACING,
+)
 from llmops_core.plugins.registry import AgentRegistry
+from llmops_core.tracing.host import load_tracing_extras_from_env
 from llmops_core.prompts import (
     MongoPromptRepository,
     PromptRegistry,
@@ -53,6 +59,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         agent_registry = AgentRegistry.discover()
     app.state.agent_registry = agent_registry
 
+    tracing_extras = load_tracing_extras_from_env()
+    setattr(app.state, APP_STATE_ATTR_TRACING_EXTRAS, tracing_extras)
+
     if settings.seed_prompts_on_startup and prompt_repository is not None:
         for agent_id, plugin in agent_registry.items():
             seeds = list(plugin.prompt_seeds())
@@ -69,11 +78,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     for agent_id, plugin in agent_registry.items():
         log = logging.getLogger(f"llmops.agent.{agent_id}")
-        extras: dict[str, Any] = {}
+        extras: dict[str, Any] = {EXTRA_KEY_TRACING: tracing_extras}
         if prompt_registry is not None:
             extras["prompt_registry"] = prompt_registry
         if prompt_repository is not None:
             extras["prompt_repository"] = prompt_repository
+        eval_fn = getattr(plugin, "get_eval_runner", None)
+        if callable(eval_fn):
+            runner = eval_fn()
+            if runner is not None:
+                extras[EXTRA_KEY_EVAL_RUNNER] = runner
         ctx = build_host_context(
             agent_id=agent_id,
             settings=settings,
@@ -88,13 +102,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     for agent_id, plugin in reversed(list(agent_registry.items())):
         log = logging.getLogger(f"llmops.agent.{agent_id}")
-        extras = {}
+        extras: dict[str, Any] = {EXTRA_KEY_TRACING: tracing_extras}
         pr = app.state.prompt_registry
         if pr is not None:
             extras["prompt_registry"] = pr
         pq = app.state.prompt_repository
         if pq is not None:
             extras["prompt_repository"] = pq
+        eval_fn = getattr(plugin, "get_eval_runner", None)
+        if callable(eval_fn):
+            runner = eval_fn()
+            if runner is not None:
+                extras[EXTRA_KEY_EVAL_RUNNER] = runner
         ctx = build_host_context(
             agent_id=agent_id,
             settings=settings,

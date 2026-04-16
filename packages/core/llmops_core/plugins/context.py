@@ -24,4 +24,18 @@ class AgentHostContext(Protocol):
 
     @property
     def extras(self) -> Mapping[str, Any]:
-        """Opaque bag of host integrations (clients, callbacks, settings snapshots)."""
+        """Opaque bag of host integrations (clients, callbacks, settings snapshots).
+
+        Conventional keys (all optional, set by the API host when applicable):
+
+        - ``"settings"`` — host settings snapshot.
+        - ``"prompt_registry"`` / ``"prompt_repository"`` — prompt store handles.
+        - ``"llmops_tracing"`` — :class:`~llmops_core.tracing.host.TracingExtras`.
+        - ``"eval_runner"`` — object from the active plugin's
+          :meth:`~llmops_core.plugins.base.BaseAgentPlugin.get_eval_runner`.
+
+        The API host also sets ``app.state.llmops_tracing_extras`` to the same
+        :class:`~llmops_core.tracing.host.TracingExtras` for request paths that
+        build per-run LangChain configs (see
+        :func:`~llmops_core.tracing.invoke.build_langfuse_llm_invoke_config`).
+        """

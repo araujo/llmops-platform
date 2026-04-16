@@ -468,12 +468,14 @@ def _node_generate_response_impl(
         product_cards=len(cards),
     )
 
+    invoke_cfg = state.get("shopping_llm_invoke_config")
     llm_text = try_generate_llm_reply(
         user_message=msg,
         preferences=state["preferences"],
         search_plan=state["search_plan"],
         product_cards=cards,
         request_id=rid,
+        invoke_config=invoke_cfg if isinstance(invoke_cfg, dict) else None,
     )
     if llm_text:
         pipeline_event(

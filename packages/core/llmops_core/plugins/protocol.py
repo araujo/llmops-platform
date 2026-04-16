@@ -20,10 +20,21 @@ AgentShutdownHook = Callable[[AgentHostContext], Awaitable[None]]
 
 
 class AgentPlugin(Protocol):
-    """Structural contract for an agent package.
+    """Structural contract for an agent package (agent-agnostic).
 
     The host depends only on this protocol (and related types), never on
     agent-specific modules. Implementations live in agent packages.
+
+    **Required surface** (validated by
+    :func:`llmops_core.plugins.registry.validate_plugin`):
+
+    - ``agent_id``, ``version``
+    - ``routers()``, ``prompt_seeds()``
+    - ``on_startup``, ``on_shutdown``
+
+    **Optional infrastructure** (not part of this protocol; agents may subclass
+    :class:`llmops_core.plugins.base.BaseAgentPlugin` for defaults): trace
+    metadata, eval runners, extra lifecycle hooks, alternate seed accessors.
     """
 
     @property
@@ -32,16 +43,16 @@ class AgentPlugin(Protocol):
 
     @property
     def version(self) -> str:
-        """Plugin version string for logs, diagnostics, and compatibility checks."""
+        """Plugin version string for logs, diagnostics, and compatibility."""
 
     def routers(self) -> Sequence[APIRouter]:
-        """Optional HTTP surface contributed by this agent (prefixes set on each router)."""
+        """HTTP surface for this agent (prefixes set on each router)."""
 
     def prompt_seeds(self) -> Sequence[PromptSeedDocument]:
-        """Prompt documents the host may seed into the prompt store (e.g. MongoDB)."""
+        """Prompt documents the host may seed (e.g. MongoDB)."""
 
     async def on_startup(self, ctx: AgentHostContext) -> None:
-        """Called after the host has built ``ctx``; use for pools, caches, warm-up."""
+        """After ``ctx`` is built; pools, caches, warm-up."""
 
     async def on_shutdown(self, ctx: AgentHostContext) -> None:
-        """Called before process exit; flush clients and release resources."""
+        """Before process exit; flush clients and release resources."""

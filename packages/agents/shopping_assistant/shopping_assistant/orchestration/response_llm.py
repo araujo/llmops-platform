@@ -65,6 +65,7 @@ def generate_llm_shopping_reply(
     preferences: dict[str, Any],
     search_plan: dict[str, Any],
     product_cards: list[dict[str, Any]],
+    invoke_config: dict[str, Any] | None = None,
 ) -> str:
     """Grounded answer from ranked catalog rows (no invented SKUs)."""
     llm = create_shopping_chat_model()
@@ -97,9 +98,11 @@ def generate_llm_shopping_reply(
         f"{grounding}\n\n"
         "Write a short reply for the shopper following GROUNDING exactly."
     )
-    msg = llm.invoke(
-        [SystemMessage(content=system), HumanMessage(content=human)]
-    )
+    messages = [SystemMessage(content=system), HumanMessage(content=human)]
+    if invoke_config:
+        msg = llm.invoke(messages, config=invoke_config)
+    else:
+        msg = llm.invoke(messages)
     content = getattr(msg, "content", None)
     if isinstance(content, str):
         return content.strip()
@@ -113,6 +116,7 @@ def try_generate_llm_reply(
     search_plan: dict[str, Any],
     product_cards: list[dict[str, Any]],
     request_id: str | None = None,
+    invoke_config: dict[str, Any] | None = None,
 ) -> str | None:
     """Return LLM text or ``None`` if not configured or invocation fails."""
     mq = search_plan.get("match_quality")
@@ -128,6 +132,7 @@ def try_generate_llm_reply(
             preferences=preferences,
             search_plan=search_plan,
             product_cards=product_cards,
+            invoke_config=invoke_config,
         )
     except Exception as exc:
         rid = request_id or "unknown"

@@ -73,9 +73,18 @@ def get_shopping_graph() -> Any:
     return _COMPILED_GRAPH
 
 
-def run_shopping_turn(user_message: str) -> ShoppingGraphState:
-    """Run one graph invocation (sync)."""
-    request_id = uuid.uuid4().hex[:12]
+def run_shopping_turn(
+    user_message: str,
+    *,
+    shopping_request_id: str | None = None,
+    llm_invoke_config: dict[str, Any] | None = None,
+) -> ShoppingGraphState:
+    """Run one graph invocation (sync).
+
+    ``llm_invoke_config`` is forwarded to the optional shopping LLM call only
+    (e.g. Langfuse callbacks from the host); omit for deterministic-only runs.
+    """
+    request_id = shopping_request_id or uuid.uuid4().hex[:12]
     preview = (user_message or "")[:400]
     pipeline_event(
         PIPELINE_LOGGER,
@@ -85,10 +94,11 @@ def run_shopping_turn(user_message: str) -> ShoppingGraphState:
         message_preview=preview,
     )
     graph = get_shopping_graph()
-    result: ShoppingGraphState = graph.invoke(
-        {
-            "user_message": user_message,
-            "shopping_request_id": request_id,
-        }
-    )
+    init: dict[str, Any] = {
+        "user_message": user_message,
+        "shopping_request_id": request_id,
+    }
+    if llm_invoke_config is not None:
+        init["shopping_llm_invoke_config"] = llm_invoke_config
+    result: ShoppingGraphState = graph.invoke(init)
     return result

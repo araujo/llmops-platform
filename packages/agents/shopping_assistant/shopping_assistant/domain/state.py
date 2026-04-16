@@ -21,3 +21,5 @@ class ShoppingGraphState(TypedDict, total=False):
     shopping_ranked: list[dict[str, Any]]
     shopping_relaxed: bool
     shopping_retrieval_notes: list[str]
+    # LangChain Runnable config for optional LLM tracing (Langfuse callback).
+    shopping_llm_invoke_config: dict[str, Any]

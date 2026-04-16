@@ -1,4 +1,9 @@
-"""Discover and validate agent plugins via ``importlib.metadata`` entry points."""
+"""Discover and validate agent plugins via ``importlib.metadata`` entry points.
+
+Plugins must satisfy :class:`~llmops_core.plugins.protocol.AgentPlugin`
+(structural). Agents may implement it or subclass
+:class:`~llmops_core.plugins.base.BaseAgentPlugin` for optional infra hooks.
+"""
 
 from __future__ import annotations
 

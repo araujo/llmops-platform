@@ -128,10 +128,14 @@ def test_nike_shoes_retrieval_respects_brand() -> None:
     catalog = load_product_catalog()
     prefs = extract_preferences(msg, catalog)
     assert "Nike" in prefs.brands
-    cands, prefs2, _, _ = retrieve_candidates_with_relaxation(catalog, msg, prefs=prefs)
+    assert "sneakers" in prefs.product_types
+    cands, prefs2, _, notes = retrieve_candidates_with_relaxation(catalog, msg, prefs=prefs)
     assert len(cands) == 1
     assert cands[0].id == "nike-air-zoom-runner"
     assert prefs2.brand_relaxed is False
+    ranked = rank_products(cands, msg, prefs2)
+    mq = assess_match_quality(ranked, prefs2, notes)
+    assert mq != "weak"
 
 
 def test_assess_match_quality_tiers() -> None:

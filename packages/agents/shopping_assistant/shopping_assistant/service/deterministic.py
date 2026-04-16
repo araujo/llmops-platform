@@ -208,12 +208,19 @@ PRODUCT_TYPE_TO_CATEGORY_CANDIDATES: dict[str, tuple[str, ...]] = {
         "personal care",
         "cologne",
     ),
+    "jewelry": (
+        "accessories",
+        "jewelry",
+        "fashion",
+    ),
 }
 
 # Single-token synonyms -> candidate catalog slugs (matched on word boundaries in the message).
 TOKEN_TO_CATEGORY_CANDIDATES: dict[str, tuple[str, ...]] = {
     "sneaker": ("shoes", "athletic shoes", "footwear", "sneakers"),
     "sneakers": ("shoes", "athletic shoes", "footwear", "sneakers"),
+    "shoes": ("shoes", "athletic shoes", "footwear", "sneakers"),
+    "shoe": ("shoes", "athletic shoes", "footwear", "sneakers"),
     "trainers": ("shoes", "footwear", "sneakers"),
     "trainer": ("shoes", "footwear", "sneakers"),
     "footwear": ("shoes", "footwear", "sneakers"),
@@ -225,6 +232,8 @@ TOKEN_TO_CATEGORY_CANDIDATES: dict[str, tuple[str, ...]] = {
     "fragrance": ("fragrance", "perfume", "beauty"),
     "cologne": ("fragrance", "perfume", "beauty"),
     "perfume": ("perfume", "fragrance", "beauty"),
+    "necklace": ("accessories", "jewelry", "fashion"),
+    "bracelet": ("accessories", "jewelry", "fashion"),
 }
 
 _COLOR_WORDS = frozenset(
@@ -257,9 +266,18 @@ USE_CASE_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 PRODUCT_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "sneakers": ("sneaker", "sneakers", "trainers", "running shoes"),
+    "sneakers": ("sneaker", "sneakers", "shoes", "trainers", "running shoes"),
     "perfume": ("perfume", "fragrance", "cologne"),
     "bag": ("bag", "backpack", "tote", "briefcase", "crossbody"),
+    "jewelry": (
+        "necklace",
+        "necklaces",
+        "pendant",
+        "bracelet",
+        "bracelets",
+        "earrings",
+        "chain",
+    ),
     "headphones": ("headphones", "headphone"),
     "earbuds": ("earbuds", "earbud"),
     "laptop": ("laptop", "notebook", "ultrabook"),
@@ -344,6 +362,7 @@ SYNONYM_MAP: dict[str, tuple[str, ...]] = {
     "headphones": ("headset", "over-ear", "over ear", "ear cup"),
     "earbuds": ("earbud", "in-ear", "in ear", "buds"),
     "laptop": ("notebook", "ultrabook", "macbook"),
+    "jewelry": ("necklace", "pendant", "bracelet", "earring", "chain", "charm"),
 }
 
 # When infer_catalog_categories yields nothing, map common intents to default category slugs
@@ -352,6 +371,7 @@ INTENT_CATEGORY_DEFAULT_TERMS: dict[str, tuple[str, ...]] = {
     "sneakers": ("shoes", "footwear", "sneakers", "athletic shoes"),
     "perfume": ("fragrance", "beauty", "perfume", "personal care"),
     "bag": ("bags", "handbags", "tote", "satchel", "briefcase", "accessories"),
+    "jewelry": ("accessories", "jewelry", "fashion"),
     "headphones": ("headphones",),
     "earbuds": ("earbuds",),
     "laptop": ("laptops",),
@@ -552,6 +572,31 @@ RANK_WEIGHTS: dict[str, float] = {
 
 # Below this rank score, structured queries are treated as weak matches for messaging.
 WEAK_MATCH_SCORE_THRESHOLD = 14.0
+
+# When the score is below :data:`WEAK_MATCH_SCORE_THRESHOLD` but the user named a
+# brand and the top row still aligns with product intent, keep at least partial.
+BRAND_RESCUE_MIN_SCORE = 8.0
+
+# Map free-text keywords (from the query) to substrings checked on the product
+# blob when ``product_types`` was not inferred—e.g. "Nike shoes" before we map
+# ``shoes`` → sneakers.
+_QUERY_KEYWORD_PRODUCT_HINTS: dict[str, tuple[str, ...]] = {
+    "shoes": (
+        "shoe",
+        "sneaker",
+        "sneakers",
+        "footwear",
+        "trainer",
+        "trainers",
+        "running",
+    ),
+    "shoe": ("shoe", "sneaker", "sneakers", "footwear"),
+    "bags": ("bag", "tote", "satchel", "backpack", "briefcase"),
+    "bag": ("bag", "tote", "satchel", "backpack", "briefcase"),
+    "perfume": ("perfume", "fragrance", "cologne", "scent", "eau"),
+    "necklace": ("necklace", "pendant", "chain", "jewelry"),
+    "necklaces": ("necklace", "pendant", "chain", "jewelry"),
+}
 
 
 def _load_catalog_raw() -> list[dict[str, Any]]:
@@ -858,6 +903,41 @@ def _product_matches_product_types(p: Product, prefs: UserPreferences) -> bool:
     )
 
 
+def _generic_query_keywords_align_product(
+    p: Product,
+    prefs: UserPreferences,
+) -> bool:
+    """True when a query keyword like ``shoes`` / ``bag`` matches the product blob."""
+    if not prefs.keywords:
+        return False
+    blob = p.searchable_blob().lower()
+    for kw in prefs.keywords:
+        key = kw.strip().lower()
+        hints = _QUERY_KEYWORD_PRODUCT_HINTS.get(key)
+        if hints is None:
+            continue
+        if any(h in blob for h in hints):
+            return True
+    return False
+
+
+def _brand_query_rescues_weak_score(
+    top_p: Product,
+    prefs: UserPreferences,
+    top_s: float,
+) -> bool:
+    """Borderline rank score but exact brand + plausible product → not weak."""
+    if top_s >= WEAK_MATCH_SCORE_THRESHOLD:
+        return False
+    if top_s < BRAND_RESCUE_MIN_SCORE:
+        return False
+    if not prefs.brands or not _product_matches_brand_exact(top_p, prefs.brands):
+        return False
+    if prefs.product_types:
+        return _product_matches_product_types(top_p, prefs)
+    return _generic_query_keywords_align_product(top_p, prefs)
+
+
 def assess_match_quality(
     ranked: list[tuple[Product, float]],
     prefs: UserPreferences,
@@ -878,7 +958,8 @@ def assess_match_quality(
     if prefs.product_types and not _product_matches_product_types(top_p, prefs):
         return "weak"
     if top_s < WEAK_MATCH_SCORE_THRESHOLD:
-        return "weak"
+        if not _brand_query_rescues_weak_score(top_p, prefs, top_s):
+            return "weak"
     if any(
         x in " ".join(retrieval_notes).lower()
         for x in ("full catalog", "semantic product")

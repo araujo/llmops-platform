@@ -9,7 +9,10 @@ import json
 import logging
 from typing import Any, Mapping
 
-PIPELINE_LOGGER = logging.getLogger("shopping_assistant.pipeline")
+PIPELINE_LOGGER = logging.getLogger(
+    "uvicorn.error.shopping_assistant.pipeline"
+)
+PIPELINE_LOGGER.setLevel(logging.INFO)
 
 
 def _fmt(value: Any, max_len: int = 220) -> str:
@@ -67,7 +70,7 @@ def pipeline_stage_error(
 ) -> None:
     """Readable error line plus stack trace on the same logger (not silent)."""
     parts: list[str] = [
-        f"[shopping][stage_error]",
+        "[shopping][stage_error]",
         f"failed_stage={failed_stage}",
         f"request_id={request_id}",
         f"error={_fmt(str(exc), max_len=320)}",

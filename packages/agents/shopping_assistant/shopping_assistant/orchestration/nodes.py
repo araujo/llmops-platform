@@ -79,6 +79,19 @@ def _prefs_log_fields(prefs_dict: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _merge_log_fields(
+    explicit: dict[str, Any],
+    extra: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge log dicts while preventing duplicate keyword collisions."""
+    merged = dict(explicit)
+    for key, value in extra.items():
+        if key in merged:
+            continue
+        merged[key] = value
+    return merged
+
+
 def _fallback_search_plan(state: ShoppingGraphState) -> dict[str, Any]:
     """Minimal plan when plan generation fails (downstream still valid)."""
     prefs = state.get("preferences") or {}
@@ -187,14 +200,14 @@ def node_extract_preferences(state: ShoppingGraphState) -> dict[str, Any]:
         prefs = extract_preferences(msg, catalog)
         prefs_dict = prefs.to_public_dict()
         plog = _prefs_log_fields(prefs_dict)
-        pipeline_event(
-            PIPELINE_LOGGER,
-            "preferences_extracted",
-            rid,
-            message=msg[:400],
-            preferences=compact_preferences(prefs_dict),
-            **plog,
+        fields = _merge_log_fields(
+            {
+                "message": msg[:400],
+                "preferences": compact_preferences(prefs_dict),
+            },
+            plog,
         )
+        pipeline_event(PIPELINE_LOGGER, "preferences_extracted", rid, **fields)
         return {"preferences": prefs_dict}
     except Exception as exc:
         pipeline_stage_error(
@@ -222,17 +235,17 @@ def node_retrieve_candidates(state: ShoppingGraphState) -> dict[str, Any]:
         ) = retrieve_candidates_with_relaxation(catalog, msg, prefs=prefs)
         pd = prefs.to_public_dict()
         plog = _prefs_log_fields(pd)
-        pipeline_event(
-            PIPELINE_LOGGER,
-            "retrieval_done",
-            rid,
-            message=msg[:400],
-            candidate_count=len(candidates),
-            relaxed=relaxed,
-            shopping_relaxed=relaxed,
-            retrieval_notes_n=len(retrieval_notes),
-            **plog,
+        fields = _merge_log_fields(
+            {
+                "message": msg[:400],
+                "candidate_count": len(candidates),
+                "relaxed": relaxed,
+                "shopping_relaxed": relaxed,
+                "retrieval_notes_n": len(retrieval_notes),
+            },
+            plog,
         )
+        pipeline_event(PIPELINE_LOGGER, "retrieval_done", rid, **fields)
         return {
             "preferences": pd,
             "shopping_relaxed": relaxed,
@@ -277,16 +290,16 @@ def node_rank_candidates(state: ShoppingGraphState) -> dict[str, Any]:
         ]
         pd = state.get("preferences") or {}
         plog = _prefs_log_fields(pd)
-        pipeline_event(
-            PIPELINE_LOGGER,
-            "ranking_done",
-            rid,
-            message=msg[:400],
-            ranked_count=len(ranked_top),
-            candidate_in=len(candidates),
-            top_ranked=tops,
-            **plog,
+        fields = _merge_log_fields(
+            {
+                "message": msg[:400],
+                "ranked_count": len(ranked_top),
+                "candidate_in": len(candidates),
+                "top_ranked": tops,
+            },
+            plog,
         )
+        pipeline_event(PIPELINE_LOGGER, "ranking_done", rid, **fields)
         return {"shopping_ranked": ranked_top}
     except Exception as exc:
         pipeline_stage_error(
@@ -311,14 +324,18 @@ def _search_plan_from_dict(d: dict[str, Any]) -> SearchPlan:
         match_quality=str(d.get("match_quality", "strong")),
         retrieval_notes=list(d.get("retrieval_notes") or []),
         product_types=list(d.get("product_types") or []),
-        semantic_hints_by_product_type={str(k): list(v) for k, v in hints.items()},
+        semantic_hints_by_product_type={
+            str(k): list(v) for k, v in hints.items()
+        },
         intent_category_defaults=list(d.get("intent_category_defaults") or []),
         normalized_categories=list(d.get("normalized_categories") or []),
         normalized_keywords=list(d.get("normalized_keywords") or []),
         facet_colors=list(d.get("facet_colors") or []),
         facet_style_keywords=list(d.get("facet_style_keywords") or []),
         facet_use_cases=list(d.get("facet_use_cases") or []),
-        query_text_after_price_strip=str(d.get("query_text_after_price_strip") or ""),
+        query_text_after_price_strip=str(
+            d.get("query_text_after_price_strip") or ""
+        ),
         price_preference_summary=str(d.get("price_preference_summary") or ""),
     )
 
@@ -349,19 +366,19 @@ def node_build_search_plan(state: ShoppingGraphState) -> dict[str, Any]:
         pd = state.get("preferences") or {}
         plog = _prefs_log_fields(pd)
         msg = state["user_message"].strip()
-        pipeline_event(
-            PIPELINE_LOGGER,
-            "search_plan_ready",
-            rid,
-            message=msg[:400],
-            intent=sp.get("intent"),
-            match_quality=sp.get("match_quality"),
-            relaxed=sp.get("relaxed"),
-            normalized_categories=sp.get("normalized_categories"),
-            filters_n=len(sp.get("filters_applied") or []),
-            product_types=sp.get("product_types"),
-            **plog,
+        fields = _merge_log_fields(
+            {
+                "message": msg[:400],
+                "intent": sp.get("intent"),
+                "match_quality": sp.get("match_quality"),
+                "relaxed": sp.get("relaxed"),
+                "normalized_categories": sp.get("normalized_categories"),
+                "filters_n": len(sp.get("filters_applied") or []),
+                "product_types": sp.get("product_types"),
+            },
+            plog,
         )
+        pipeline_event(PIPELINE_LOGGER, "search_plan_ready", rid, **fields)
         return {"search_plan": sp}
     except Exception as exc:
         pipeline_stage_error(
@@ -426,20 +443,20 @@ def _node_generate_response_impl(
         skip_reason = None
     pd = state.get("preferences") or {}
     plog = _prefs_log_fields(pd)
-    pipeline_event(
-        PIPELINE_LOGGER,
-        "llm_gate",
-        rid,
-        message=msg[:400],
-        match_quality=mq_raw,
-        relaxed=state.get("shopping_relaxed"),
-        product_cards=len(cards),
-        llm_configured=shopping_chat_model_configured(),
-        will_attempt_llm=skip_reason is None,
-        llm_skip_reason=skip_reason or "none",
-        normalized_categories=(sp_dict.get("normalized_categories")),
-        **plog,
+    fields = _merge_log_fields(
+        {
+            "message": msg[:400],
+            "match_quality": mq_raw,
+            "relaxed": state.get("shopping_relaxed"),
+            "product_cards": len(cards),
+            "llm_configured": shopping_chat_model_configured(),
+            "will_attempt_llm": skip_reason is None,
+            "llm_skip_reason": skip_reason or "none",
+            "normalized_categories": sp_dict.get("normalized_categories"),
+        },
+        plog,
     )
+    pipeline_event(PIPELINE_LOGGER, "llm_gate", rid, **fields)
 
     pipeline_event(
         PIPELINE_LOGGER,

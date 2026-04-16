@@ -1421,6 +1421,69 @@ def _product_to_card(p: Product, score: float | None) -> dict[str, Any]:
     return card
 
 
+def _reply_summarize_ask(prefs: UserPreferences) -> str | None:
+    """Short summary of inferred intent (shopper-facing, not internal jargon)."""
+    parts: list[str] = []
+    if prefs.brands:
+        parts.append(", ".join(prefs.brands))
+    if prefs.product_types:
+        parts.append(", ".join(prefs.product_types))
+    if prefs.colors:
+        parts.append(", ".join(prefs.colors))
+    if prefs.use_cases:
+        parts.append(", ".join(prefs.use_cases))
+    if prefs.min_price is not None and prefs.max_price is not None:
+        parts.append(f"${prefs.min_price:g}–${prefs.max_price:g}")
+    elif prefs.max_price is not None:
+        parts.append(f"up to ${prefs.max_price:g}")
+    elif prefs.min_price is not None:
+        parts.append(f"from ${prefs.min_price:g}")
+    if prefs.categories:
+        cat_s = ", ".join(prefs.categories)
+        if not parts or cat_s not in " ".join(parts):
+            parts.append(cat_s)
+    if not parts:
+        return None
+    return " · ".join(parts)
+
+
+def _friendly_retrieval_note(note: str) -> str:
+    """Turn internal retrieval notes into short shopper-facing lines."""
+    if note.startswith("No matches at or below"):
+        return (
+            "Nothing sat at that budget, so I searched a bit higher—"
+            "see prices below."
+        )
+    fixed: dict[str, str] = {
+        (
+            "Mapped your request to the closest available categories in this catalog."
+        ): (
+            "I pointed the search at the closest categories we carry here."
+        ),
+        (
+            "Relaxed the color filter so more catalog items can be considered."
+        ): (
+            "I eased the color a little so more items could qualify."
+        ),
+        (
+            "No catalog rows matched required category + semantic product intent."
+        ): (
+            "Nothing here matched that combination of category and product type."
+        ),
+        (
+            "No exact filter match; took the closest lexical matches from the catalog."
+        ): (
+            "I couldn’t match every detail—these are the closest picks."
+        ),
+        (
+            "No catalog rows matched your message; no fallback catalog sweep."
+        ): (
+            "I couldn’t find anything close to that in this catalog."
+        ),
+    }
+    return fixed.get(note, note)
+
+
 def _format_reply(
     top: list[tuple[Product, float]],
     prefs: UserPreferences,
@@ -1431,92 +1494,78 @@ def _format_reply(
     lines: list[str] = []
     mq = plan.match_quality
     notes = plan.retrieval_notes
+    summary = _reply_summarize_ask(prefs)
 
     if mq == "weak":
         lines.append(
-            "Nothing in this sample catalog reached a confident match for your request."
+            "I couldn’t find a close enough match in this catalog "
+            "for what you asked."
         )
-        if notes:
-            lines.append("Details: " + " ".join(notes))
-        detail_bits: list[str] = []
-        if prefs.categories:
-            detail_bits.append(f"categories: {', '.join(prefs.categories)}")
-        if prefs.max_price is not None:
-            detail_bits.append(f"budget up to ${prefs.max_price:g}")
-        if prefs.brands:
-            detail_bits.append(f"brands: {', '.join(prefs.brands)}")
-        if detail_bits:
-            lines.append("Filters considered: " + "; ".join(detail_bits) + ".")
-        lines.append("No product list is shown when confidence is low.")
+        if summary:
+            lines.append(f"You mentioned: {summary}.")
+        for n in notes:
+            lines.append(_friendly_retrieval_note(n))
+        lines.append(
+            "Try different keywords, a wider budget, or fewer specifics—"
+            "then ask again."
+        )
         return "\n".join(lines)
 
     if not top:
         lines.append(
-            "No products in this catalog matched your filters and semantic product intent."
+            "I couldn’t find products that fit everything together "
+            "in this catalog."
         )
-        if notes:
-            lines.append("Details: " + " ".join(notes))
-        detail_bits = []
-        if prefs.categories:
-            detail_bits.append(f"categories: {', '.join(prefs.categories)}")
-        if prefs.max_price is not None:
-            detail_bits.append(f"budget up to ${prefs.max_price:g}")
-        if prefs.brands:
-            detail_bits.append(f"brands: {', '.join(prefs.brands)}")
-        if detail_bits:
-            lines.append("Filters considered: " + "; ".join(detail_bits) + ".")
+        if summary:
+            lines.append(f"You asked for: {summary}.")
+        for n in notes:
+            lines.append(_friendly_retrieval_note(n))
         return "\n".join(lines)
 
     if mq == "partial":
         lines.append(
-            "Here are the closest catalog matches. "
-            "Some of your constraints were not matched exactly."
+            "Here are a few options that come close. "
+            "Double-check colors or brand wording if those matter."
         )
         if prefs.brand_relaxed and prefs.brands:
+            b = ", ".join(prefs.brands)
             lines.append(
-                "Brand: no exact label for "
-                f"{', '.join(prefs.brands)}; showing the nearest catalog matches."
+                f"I didn’t see an exact “{b}” label—these are the nearest matches."
             )
         elif prefs.colors and not _matches_color(top[0][0], prefs.colors):
             lines.append(
-                "Color: the top match may not include every color you specified."
+                "The top pick may not cover every color you had in mind."
             )
-        elif prefs.brands and not _product_matches_brand_exact(top[0][0], prefs.brands):
+        elif prefs.brands and not _product_matches_brand_exact(
+            top[0][0], prefs.brands
+        ):
             lines.append(
-                "Brand: product brand may differ slightly from the name you used."
+                "Brand wording on the tag may differ from what you typed."
             )
     elif plan.intent == "browse_or_explore":
         lines.append(
-            "Here are some top picks from the sample catalog based on your message."
+            "Here are some ideas from the catalog based on what you said."
         )
     else:
-        lines.append(
-            "Here are the best matches from this sample catalog for your request."
-        )
+        lines.append("Here are my top picks for you.")
 
     if mq == "strong" and relaxed and notes:
-        lines.append("Note: " + " ".join(notes))
+        lines.extend(_friendly_retrieval_note(n) for n in notes)
     elif mq == "partial" and notes:
-        lines.append("Note: " + " ".join(notes))
+        lines.extend(_friendly_retrieval_note(n) for n in notes)
 
-    detail_bits = []
-    if prefs.categories:
-        detail_bits.append(f"categories: {', '.join(prefs.categories)}")
-    if prefs.max_price is not None:
-        detail_bits.append(f"budget up to ${prefs.max_price:g}")
-    if prefs.brands:
-        detail_bits.append(f"brands: {', '.join(prefs.brands)}")
-    if detail_bits:
-        lines.append("Filters considered: " + "; ".join(detail_bits) + ".")
+    if summary:
+        lines.append(f"Looking for: {summary}.")
 
-    for i, (p, sc) in enumerate(top[:5], start=1):
-        lines.append(
-            f"{i}. {p.name} — ${p.price:g} {p.currency} "
-            f"({p.category}, {p.brand}; score {sc:.1f})"
+    for i, (p, _sc) in enumerate(top[:5], start=1):
+        line = (
+            f"{i}. {p.name} — ${p.price:g} {p.currency} · "
+            f"{p.brand} · {p.category}"
         )
+        lines.append(line)
     if relaxed and mq == "strong" and not notes:
         lines.append(
-            "(Some constraints were relaxed so you still get useful recommendations.)"
+            "I eased a constraint slightly so you still get useful picks."
         )
     return "\n".join(lines)
 

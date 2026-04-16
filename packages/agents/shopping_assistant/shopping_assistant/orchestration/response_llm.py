@@ -20,6 +20,37 @@ from shopping_assistant.orchestration.pipeline_log import (
 logger = logging.getLogger(__name__)
 
 
+def _grounding_block_for_product_count(n: int) -> str:
+    """Human-message rules so the model cannot overstate catalog or capabilities."""
+    if n == 0:
+        return (
+            "GROUNDING: ranked_products is empty. Say clearly that nothing "
+            "from this catalog was returned for them. Suggest refining "
+            "their request. Do not name or price any product."
+        )
+    if n == 1:
+        return (
+            "GROUNDING: ranked_products has EXACTLY ONE item. You may ONLY "
+            "discuss that single product (use its name and price from the "
+            "list). Do NOT say there are other options, styles, colors, or "
+            "models available. Do NOT say 'we also have', 'check out our "
+            "other', 'browse more', or 'additional Nike' (or any brand) "
+            "items. Do NOT offer to show where items are in a physical "
+            "store, aisle, shelf, inventory beyond this list, reviews, "
+            "ratings, or to pull up more results—those capabilities are not "
+            "available. Speak as if this one listing is the full answer."
+        )
+    return (
+        f"GROUNDING: ranked_products has {n} items. Mention ONLY these "
+        f"{n} products by name (and prices from the list). Do NOT imply a "
+        "larger catalog, more styles, or other brands beyond these rows. "
+        "Do NOT offer store directions, in-store pickup locations, reviews, "
+        "or 'more results' unless you are comparing among the listed items "
+        "only. If the user asked broadly, acknowledge these are the matches "
+        "you have here—not a sample of a bigger inventory."
+    )
+
+
 def shopping_chat_model_configured() -> bool:
     try:
         return read_llm_settings_from_env() is not None
@@ -39,13 +70,19 @@ def generate_llm_shopping_reply(
     llm = create_shopping_chat_model()
 
     system = (
-        "You are a shopping assistant. Answer using ONLY the product list "
-        "below. Match quality in the JSON context is already classified as "
-        "strong—recommend confidently but never imply a perfect fit beyond these rows. "
-        "Include product names and prices. "
-        "If the list is empty, say you could not find matches and suggest "
-        "how to refine the query. "
-        "Do not invent products or prices."
+        "You are a concise shopping assistant. Your ONLY source of truth "
+        "for what exists in this turn is the ranked_products array in the "
+        "context. "
+        "search_plan and extracted_preferences describe the query—they are "
+        "NOT evidence of extra inventory; never claim products or variety "
+        "beyond ranked_products. "
+        "Use exact product names and prices from ranked_products only. "
+        "Do not invent SKUs, deals, availability, or categories. "
+        "Forbidden: implying more catalog items than listed; 'other styles' "
+        "or 'more options' when only one product is listed; store layout, "
+        "aisles, departments, reviews, ratings, or fetching more results. "
+        "Do not mention JSON, scores, or internal machinery. "
+        "Be natural and short (under 12 sentences)."
     )
     payload = {
         "user_message": user_message,
@@ -53,10 +90,12 @@ def generate_llm_shopping_reply(
         "search_plan": search_plan,
         "ranked_products": product_cards,
     }
+    grounding = _grounding_block_for_product_count(len(product_cards))
     human = (
-        "Context (JSON):\n"
+        "Use this context to answer (do not quote raw JSON in your reply):\n"
         f"{json.dumps(payload, indent=2)[:12000]}\n\n"
-        "Write a short, helpful reply (under 12 sentences)."
+        f"{grounding}\n\n"
+        "Write a short reply for the shopper following GROUNDING exactly."
     )
     msg = llm.invoke(
         [SystemMessage(content=system), HumanMessage(content=human)]

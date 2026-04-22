@@ -1,0 +1,45 @@
+{
+  "description": "Smoke checks: guardrails, deterministic path, and at least one catalog hit.",
+  "cases": [
+    {
+      "id": "empty_message_fallback",
+      "query": "",
+      "expect": {
+        "mode": "fallback",
+        "assistant_substring": "non-empty message"
+      }
+    },
+    {
+      "id": "sony_headphones_nonempty_reply",
+      "query": "Show me Sony headphones",
+      "expect": {
+        "min_products": 1,
+        "mode_in": ["deterministic", "llm", "fallback"],
+        "assistant_nonempty": true,
+        "expected_brand": "Sony",
+        "expected_product_type": "headphones"
+      }
+    },
+    {
+      "id": "nike_shoes_contains_expected_id",
+      "query": "Show me Nike shoes",
+      "expect": {
+        "min_products": 1,
+        "assistant_nonempty": true,
+        "expected_product_id": "nike-air-zoom-runner",
+        "expected_brand": "Nike"
+      }
+    },
+    {
+      "id": "perfume_no_match_weak",
+      "query": "Find a perfume gift under 80 dollars",
+      "expect": {
+        "mode": "deterministic",
+        "expected_no_match": true,
+        "expected_match_quality": "weak",
+        "expected_product_type": "perfume",
+        "assistant_nonempty": true
+      }
+    }
+  ]
+}

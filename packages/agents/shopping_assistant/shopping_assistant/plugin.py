@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from llmops_core.plugins.base import BaseAgentPlugin
+from llmops_core.plugins.evals import AgentEvalRunner
 from llmops_core.plugins.context import AgentHostContext
 from llmops_core.plugins.prompts import PromptSeedDocument
 from llmops_core.plugins.protocol import AgentPlugin
@@ -60,7 +61,7 @@ class ShoppingAssistantPlugin(BaseAgentPlugin):
     ) -> Mapping[str, Any] | None:
         return {"agent_id": self.agent_id, "domain": "shopping"}
 
-    def get_eval_runner(self) -> Any:
+    def get_eval_runner(self) -> AgentEvalRunner:
         return ShoppingEvalRunner()
 
 

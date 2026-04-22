@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 shopping-assistant-catalog = "shopping_assistant.cli.catalog:main"
 shopping-assistant-seed-prompts = "shopping_assistant.bootstrap.cli:main"
+shopping-assistant-eval = "shopping_assistant.evals.cli:main"
 
 [project.entry-points."llmops.agent_plugins"]
 shopping_assistant = "shopping_assistant.plugin:register"

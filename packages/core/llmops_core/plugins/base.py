@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from llmops_core.plugins.context import AgentHostContext
+from llmops_core.plugins.evals import AgentEvalRunner
 from llmops_core.plugins.prompts import PromptSeedDocument
 from llmops_core.plugins.protocol import AgentShutdownHook, AgentStartupHook
 
@@ -43,8 +44,8 @@ class BaseAgentPlugin(ABC):
     - ``build_trace_metadata()`` — small JSON-serializable dict for spans, or
       ``None`` to skip (default). Combine with host metadata via
       :func:`~llmops_core.plugins.infra.merge_agent_trace_metadata`.
-    - ``get_eval_runner()`` — agent-specific eval runner, or ``None`` (default).
-      Return type stays loose until eval infra exists.
+    - ``get_eval_runner()`` — optional object satisfying
+      :class:`~llmops_core.plugins.evals.AgentEvalRunner`, or ``None`` (default).
     """
 
     @property
@@ -94,6 +95,6 @@ class BaseAgentPlugin(ABC):
         """Metadata for tracing spans; ``None`` means omit."""
         return None
 
-    def get_eval_runner(self) -> Any:
-        """Eval runner instance, or ``None`` if not exposed."""
+    def get_eval_runner(self) -> AgentEvalRunner | None:
+        """Concrete runner implementing :class:`~llmops_core.plugins.evals.AgentEvalRunner`."""
         return None

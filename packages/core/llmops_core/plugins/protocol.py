@@ -34,7 +34,8 @@ class AgentPlugin(Protocol):
 
     **Optional infrastructure** (not part of this protocol; agents may subclass
     :class:`llmops_core.plugins.base.BaseAgentPlugin` for defaults): trace
-    metadata, eval runners, extra lifecycle hooks, alternate seed accessors.
+    metadata, :class:`~llmops_core.plugins.evals.AgentEvalRunner`, extra
+    lifecycle hooks, alternate seed accessors.
     """
 
     @property

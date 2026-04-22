@@ -1,6 +1,7 @@
 """Plugin contract: context, prompts, protocol, base class, registry."""
 
 from llmops_core.plugins.base import BaseAgentPlugin
+from llmops_core.plugins.evals import AgentEvalRunner
 from llmops_core.plugins.context import AgentHostContext
 from llmops_core.plugins.infra import (
     APP_STATE_ATTR_TRACING_EXTRAS,
@@ -26,6 +27,7 @@ from llmops_core.plugins.registry import (
 
 __all__ = [
     "ENTRY_POINT_GROUP",
+    "AgentEvalRunner",
     "AgentHostContext",
     "AgentPlugin",
     "AgentRegistry",

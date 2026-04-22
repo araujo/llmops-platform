@@ -6,7 +6,12 @@ readme = "README.md"
 requires-python = ">=3.11"
 
 [tool.uv.workspace]
-members = ["apps/api", "packages/core", "packages/agents/shopping_assistant"]
+members = [
+    "apps/api",
+    "packages/catalog",
+    "packages/core",
+    "packages/agents/shopping_assistant",
+]
 
 # Dev tools for the whole workspace (pytest runs from repo root against `tests/`)
 [dependency-groups]
@@ -16,13 +21,14 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "packages/agents/shopping_assistant/tests"]
+testpaths = ["tests", "packages/agents/shopping_assistant/tests", "packages/catalog/tests"]
 markers = [
     "integration: optional tests requiring external services (e.g. MongoDB)",
     "realistic_eval: shopping assistant realistic user-query evaluation scenarios",
 ]
 pythonpath = [
     "apps/api",
+    "packages/catalog",
     "packages/core",
     "packages/agents/shopping_assistant",
     "tests",

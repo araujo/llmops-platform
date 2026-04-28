@@ -94,10 +94,6 @@ services:
       LLMOPS_MONGO_URI: mongodb://mongo:27017
       LLMOPS_MONGO_DATABASE: llmops
       LLMOPS_POSTGRES_DSN: postgresql://llmops:llmops@postgres:5432/llmops
-      LANGFUSE_HOST: http://langfuse:3000
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-
 volumes:
   mongo_data:
   pg_data:

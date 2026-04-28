@@ -61,6 +61,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     tracing_extras = load_tracing_extras_from_env()
     setattr(app.state, APP_STATE_ATTR_TRACING_EXTRAS, tracing_extras)
+    if tracing_extras.enabled and tracing_extras.langfuse_config is not None:
+        cfg = tracing_extras.langfuse_config
+        logging.getLogger("uvicorn.error.llmops_api.tracing").info(
+            "Langfuse tracing enabled via LangChain callback; host=%s",
+            cfg.host or cfg.base_url or "sdk default",
+        )
 
     if settings.seed_prompts_on_startup and prompt_repository is not None:
         for agent_id, plugin in agent_registry.items():

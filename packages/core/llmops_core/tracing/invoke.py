@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -12,6 +13,8 @@ from llmops_core.tracing.langfuse import (
     create_langfuse_callback_handler,
     langfuse_run_config,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def build_langfuse_llm_invoke_config(
@@ -30,7 +33,7 @@ def build_langfuse_llm_invoke_config(
     """
     if tracing_extras is None or not tracing_extras.enabled:
         return None
-    if tracing_extras.langfuse_client is None:
+    if tracing_extras.langfuse_config is None:
         return None
     meta = merge_agent_trace_metadata(
         plugin,
@@ -38,5 +41,15 @@ def build_langfuse_llm_invoke_config(
         ctx=ctx,
         **trace_metadata_kwargs,
     )
-    handler = create_langfuse_callback_handler()
+    cfg = tracing_extras.langfuse_config
+    try:
+        handler = create_langfuse_callback_handler(
+            public_key=cfg.public_key,
+            secret_key=cfg.secret_key,
+            host=cfg.host,
+            base_url=cfg.base_url,
+        )
+    except Exception:
+        logger.exception("Langfuse callback init failed; LLM tracing disabled")
+        return None
     return langfuse_run_config(callback=handler, metadata=meta or {})

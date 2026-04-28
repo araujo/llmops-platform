@@ -20,7 +20,7 @@ async def run_startup(ctx: AgentHostContext) -> None:
     tracing = ctx.extras.get(EXTRA_KEY_TRACING)
     if isinstance(tracing, TracingExtras) and tracing.enabled:
         ctx.logger.debug(
-            "Host tracing extras present (Langfuse client available)",
+            "Host tracing extras present (Langfuse callback available)",
         )
 
 

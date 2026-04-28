@@ -79,6 +79,17 @@ up-support:
 down-support:
 	docker compose -f $(COMPOSE_FILE) $(SHARED_PROFILE) $(SUPPORT_PROFILE) down
 
+.PHONY: shopping-eval
+
+DATASET ?= smoke
+
+shopping-eval:
+	docker compose -f $(COMPOSE_FILE) \
+		$(SHARED_PROFILE) \
+		$(SHOPPING_PROFILE) \
+		exec -T api \
+		shopping-assistant-eval run $(DATASET)
+
 # Dynamic multi-agent selection
 up-agents:
 	@test -n "$(AGENTS)" || (echo 'Usage: make up-agents AGENTS="shopping support"' && exit 1)

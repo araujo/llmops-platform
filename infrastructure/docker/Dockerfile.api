@@ -7,9 +7,10 @@ ENV UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Monorepo workspace root (members: apps/api, packages/core, packages/agents/shopping_assistant)
+# Monorepo workspace root (workspace members copied before uv sync)
 COPY pyproject.toml /app/pyproject.toml
 COPY apps/api /app/apps/api
+COPY packages/catalog /app/packages/catalog
 COPY packages/core /app/packages/core
 COPY packages/agents/shopping_assistant /app/packages/agents/shopping_assistant
 

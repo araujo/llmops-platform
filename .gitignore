@@ -32,11 +32,11 @@ build/
 *.egg
 
 # Env (keep *.example committed)
-.env
-.env.shared
-.env.shopping
-.env.local
-.env.*.local
+#.env
+#.env.shared
+#.env.shopping
+#.env.local
+#.env.*.local
 
 # Docs
 docs/
